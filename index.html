@@ -1095,7 +1095,7 @@ function frame(nowMs) {
   if (killcam || attract || (cinematic && !spectating)) {
     // killcam: slow orbit around the moment of death. cinematic / menu: the same drift, forever.
     // orbit relative to a stable reference (camUpRef), never the heading — otherwise every turn swings the whole shot
-    const a = killcam ? (t - killcam.start) * .9 + .6 : t * .12;
+    const a = killcam ? (t - killcam.start) * .9 + .6 : .55;   // menu / cinematic: fixed angle, no orbit — orbiting makes the ground rotate underneath
     tmpV2.copy(killcam ? h : camUpRef).applyAxisAngle(p, a);
     camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : attract ? 48 : 60 * userZoom));
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(killcam ? .02 : .3, dtReal));
