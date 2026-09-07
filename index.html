@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
-<title>centi.io</title>
+<title>centi</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #050810; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   canvas { display: block; }
@@ -67,7 +67,7 @@
 <div id="over"><h1 id="overtitle">Swallowed by a sinkhole</h1><p id="overlen"></p><div class="row"><button id="again">Play again</button><button id="watch" class="ghost">Watch</button><button id="relook" class="ghost">Change look</button></div></div>
 <div id="spec"><span id="specwho">Watching your remains</span><button id="follow">Follow Boss</button><button id="again2" class="go">Play again</button><button id="relook2">Change look</button></div>
 <div id="start"><div class="card">
-  <h1>centi<span>.io</span></h1>
+  <h1>centi<span id="tld"></span></h1>
   <p class="tag">Eat, grow, and don't fall in.</p>
   <label>Pick a body</label>
   <div id="presets"></div>
@@ -91,7 +91,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ============================================================
-// centi.io – single-player prototype with bots
+// centi – single-player prototype with bots
 // ============================================================
 const R = 340;                      // globe radius
 const SEG = 2.1;                    // arc length between body segments (~1000 segments to wrap once)
