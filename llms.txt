@@ -1,0 +1,24 @@
+# centi.gg
+
+> centi is a free browser game in the .io genre: you steer a centipede across the surface of a 3D globe, eat pellets to grow, run rivals into your body to eat them, and avoid sinkholes and wandering storms that pull you in. Portals at the north and south poles jump you to the far side of the planet. No download, no account; it runs on phone, tablet and desktop.
+
+## Key facts
+
+- URL: https://centi.gg/
+- Type: free single-player browser game (online multiplayer planned)
+- Genre: arcade / .io / slither-style, but on a sphere so the map has no edges
+- Platforms: any modern browser — mouse, touch and keyboard controls
+- Opponents: nine AI centipedes in three tiers (easy: Intern, Gopher, Rookie; medium: Henchman, Enforcer, Bouncer; hard: Boss, Warden, Assassin)
+- Hazards: ten sinkholes and two storms with suction zones; two pole portals that open and close on independent timers and sever any body still passing through when they close
+- Made in New Zealand by Craig Muirhead. Not affiliated with slither.io or Atari's Centipede.
+
+## How to play
+
+- Mouse: the centipede follows the cursor; hold the button to boost.
+- Touch: hold the left or right side of the screen to steer; two fingers to boost; pinch to zoom.
+- Keyboard: arrows or A/D to steer, space to boost, C to switch camera, V for cinematic mode.
+- Boost costs length. Head into any body and you die; the dead leave jelly worth double a pellet.
+
+## Pages
+
+- [Play centi](https://centi.gg/): the game itself, with an About / How to play section on the start screen.

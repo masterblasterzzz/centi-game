@@ -3,7 +3,45 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
-<title>centi</title>
+<title>centi.gg — free 3D centipede .io game on a globe</title>
+<meta name="description" content="centi is a free browser game: steer a centipede around a 3D globe, eat to grow, avoid sinkholes and storms, and use the pole portals to jump to the far side. No download, plays on phone and desktop.">
+<link rel="canonical" href="https://centi.gg/">
+<meta name="theme-color" content="#050810">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="centi.gg">
+<meta property="og:title" content="centi.gg — a centipede .io game on a 3D globe">
+<meta property="og:description" content="Eat, grow, and don't fall in. Free browser game with pole portals, sinkholes and storms. No download.">
+<meta property="og:url" content="https://centi.gg/">
+<meta property="og:image" content="https://centi.gg/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="centi.gg — a centipede .io game on a 3D globe">
+<meta name="twitter:description" content="Eat, grow, and don't fall in. Free browser game. No download.">
+<meta name="twitter:image" content="https://centi.gg/og.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='32' fill='%23050810'/%3E%3Ccircle cx='14' cy='38' r='7' fill='%2339ff6a'/%3E%3Ccircle cx='26' cy='30' r='8' fill='%2339ff6a'/%3E%3Ccircle cx='39' cy='25' r='9' fill='%2339ff6a'/%3E%3Ccircle cx='51' cy='33' r='6' fill='%2339ff6a'/%3E%3Ccircle cx='42' cy='22' r='2' fill='%23050810'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"WebSite","@id":"https://centi.gg/#site","url":"https://centi.gg/","name":"centi.gg","inLanguage":"en"},
+ {"@type":"VideoGame","@id":"https://centi.gg/#game","name":"centi","alternateName":"centi.gg","url":"https://centi.gg/","image":"https://centi.gg/og.png",
+  "description":"A free browser game in the .io genre: steer a centipede around a 3D globe, eat pellets and the jelly of fallen rivals to grow, avoid sinkholes and wandering storms that pull you in, and dive into the pole portals to jump to the far side of the world. Nine AI opponents in three difficulty tiers.",
+  "genre":["Arcade","Action",".io game","Casual"],"gamePlatform":["Web browser","Mobile","Desktop"],"applicationCategory":"Game","operatingSystem":"Any (runs in the browser)",
+  "playMode":"SinglePlayer","numberOfPlayers":{"@type":"QuantitativeValue","minValue":1,"maxValue":1},
+  "isAccessibleForFree":true,"offers":{"@type":"Offer","price":"0","priceCurrency":"USD","availability":"https://schema.org/InStock"},
+  "author":{"@type":"Person","name":"Craig Muirhead"},"publisher":{"@type":"Organization","name":"centi.gg","url":"https://centi.gg/"},
+  "keywords":"centipede game, io game, slither style, 3D globe game, browser game, free online game, snake game"},
+ {"@type":"FAQPage","@id":"https://centi.gg/#faq","mainEntity":[
+  {"@type":"Question","name":"What is centi?","acceptedAnswer":{"@type":"Answer","text":"centi is a free browser game where you steer a centipede across the surface of a 3D globe. Eat pellets to grow, run rivals into your body to eat them, and stay clear of sinkholes and storms. It plays like slither-style .io games but on a sphere, so there are no edges to the map."}},
+  {"@type":"Question","name":"How do I play centi?","acceptedAnswer":{"@type":"Answer","text":"Move the mouse and your centipede follows the cursor; hold the button to boost. On a phone, touch the left or right side of the screen to steer and use two fingers to boost. On a keyboard use the arrow keys or A/D, with space to boost. Boost costs length, so use it to escape or to cut someone off."}},
+  {"@type":"Question","name":"What do the portals at the poles do?","acceptedAnswer":{"@type":"Answer","text":"Enter a portal at one pole while it is green and you come out at the opposite pole. Each pole has its own timer. If a portal closes while your body is still passing through, the part on the far side is cut off and becomes jelly."}},
+  {"@type":"Question","name":"Is centi free and does it work on mobile?","acceptedAnswer":{"@type":"Answer","text":"Yes. centi is free, has no download, and runs in any modern browser on phone, tablet or desktop."}},
+  {"@type":"Question","name":"Is centi multiplayer?","acceptedAnswer":{"@type":"Answer","text":"The current version is single-player against nine AI centipedes of three difficulty levels. Online multiplayer is planned."}}
+ ]}
+]}
+</script>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #050810; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
   canvas { display: block; }
@@ -66,6 +104,15 @@
   body.cine #hud, body.cine #view, body.cine #mute, body.cine #board, body.cine #hint, body.cine #feed, body.cine #minilabel, body.cine #spec { display: none !important; }
   body.cine #cine { opacity: .25; }
   #best, #overbest { font-size: 13px; opacity: .7; margin: 6px 0 0; }
+  #about { margin-top: 14px; font-size: 13px; line-height: 1.55; color: #cfc9bd; }
+  #about summary { cursor: pointer; color: #b9b3a6; font-size: 12px; opacity: .8; list-style: none; }
+  #about summary::before { content: '▸ '; }
+  #about[open] summary::before { content: '▾ '; }
+  #about h2 { font-size: 14px; margin: 12px 0 4px; color: #f2eee4; }
+  #about p, #about ul { margin: 0 0 6px; }
+  #about ul { padding-left: 18px; }
+  #about dt { font-weight: 600; color: #f2eee4; margin-top: 8px; }
+  #about dd { margin: 2px 0 0; }
   #overbest.new { color: #39ff6a; opacity: 1; font-weight: 600; }
 </style>
 </head>
@@ -103,7 +150,30 @@
     <div><label>Sounds</label><input type="range" id="volSfx" min="0" max="100" value="80"></div>
   </div>
   <button id="play">Play</button>
+  <details id="about">
+    <summary>About centi &amp; how to play</summary>
+    <h2>What is centi?</h2>
+    <p>centi is a free browser game in the .io style: you steer a centipede across the surface of a 3D globe, eat pellets to grow, and run rivals into your body to eat them. Because the world is a sphere there are no edges to the map. Ten sinkholes and two wandering storms pull you in if you get close, and the portals at the north and south poles jump you to the far side of the planet.</p>
+    <h2>How to play</h2>
+    <ul>
+      <li><strong>Mouse:</strong> your centipede follows the cursor. Hold the button to boost.</li>
+      <li><strong>Touch:</strong> tap and hold the left or right side of the screen to steer; two fingers to boost; pinch to zoom.</li>
+      <li><strong>Keyboard:</strong> arrow keys or A/D to steer, space to boost, C to switch camera, V for cinematic mode.</li>
+      <li>Boost costs length, so spend it to escape a storm or to cut across another centipede's path.</li>
+      <li>Head into any body and you die; the dead leave jelly worth double a pellet.</li>
+      <li>Portals are open while green, amber with 5 seconds left, red with 1 second left. If either pole closes while your body is still passing through, the far half is cut off.</li>
+    </ul>
+    <h2>Opponents</h2>
+    <p>Nine AI centipedes in three tiers. Intern, Gopher and Rookie are easy; Henchman, Enforcer and Bouncer feed and avoid well; Boss, Warden and Assassin hunt you once you're big enough to be worth it.</p>
+    <h2>FAQ</h2>
+    <dl>
+      <dt>Is centi free?</dt><dd>Yes. No download, no account. It runs in any modern browser on phone, tablet or desktop.</dd>
+      <dt>Is it multiplayer?</dt><dd>Not yet — this version is single-player against AI. Online multiplayer is planned.</dd>
+      <dt>Who made it?</dt><dd>centi is made in New Zealand by Craig Muirhead. Not affiliated with slither.io or Atari's Centipede.</dd>
+    </dl>
+  </details>
 </div></div>
+<noscript><p style="color:#f2eee4;padding:20px">centi is a free 3D centipede game that runs in the browser. It needs JavaScript enabled to play.</p></noscript>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 // ---------- analytics (PostHog) ----------
