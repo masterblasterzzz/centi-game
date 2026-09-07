@@ -880,12 +880,14 @@ document.getElementById('follow').addEventListener('click', () => setFollow(foll
 document.getElementById('relook2').addEventListener('click', () => { stopWatching(); showStart(); });
 specEl.addEventListener('pointerdown', e => e.stopPropagation());
 const START_POS = new THREE.Vector3(0.3, 0.2, 1).normalize();
-// the menu shows your centipede on a frozen globe; nothing moves until Play
+// the menu: your centipede parks at the spawn point under a fixed camera while the rest of the world carries on around it
 function showStart() {
   stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
-  attract = false; paused = true; gameOverFlag = false; killcam = null; player.dying = false;
-  player.ai = null; player.aiState = null; player.spawn(START_POS, now());
-  bots.forEach(b => b.setVisible(false));
+  const t = now();
+  attract = true; paused = false; gameOverFlag = false; killcam = null; player.dying = false;
+  player.ai = null; player.aiState = null; player.spawn(START_POS, t);
+  bots.forEach(b => { if (!b.alive) b.spawn(spawnAway(t, player.p), t); });
+  if (!holes.some(h => h.state !== 'closed')) resetHoles(t);
   snapCam = true;
 }
 document.getElementById('relook').addEventListener('click', showStart);
@@ -1015,7 +1017,7 @@ function frame(nowMs) {
 
   if (running) {
     // player input (or, on the menu, a gentle wander)
-    if (attract && player.alive) { const cmd = botThink(player, t, dt); player.speedMul = .7; player.move(dt, cmd.steer * .6, false); player.speedMul = 1; }
+    if (attract) { /* menu: the player's centipede stays put; everything else runs */ }
     else if (player.alive && !player.dying) {
     let s = 0;
     if (keys.ArrowLeft || keys.KeyA) s -= 1;
@@ -1140,7 +1142,7 @@ function frame(nowMs) {
   Sound.setBoost(player.alive && player.boost && !player.dying);
   Sound.setRumble(player.alive && !player.dying ? (player.pullK || 0) : 0);
   renderer.render(scene, camera);
-  if (!cinematic && !paused) drawMini(p); else miniLabel.style.bottom = '-100px';
+  if (!cinematic && !paused && !attract) drawMini(p); else miniLabel.style.bottom = '-100px';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
