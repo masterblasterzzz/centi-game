@@ -31,13 +31,15 @@
   #spec button { background: rgba(255,255,255,.1); color: #f2eee4; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 7px 12px; font: 600 13px system-ui, sans-serif; cursor: pointer; }
   #spec button.go { background: #39ff6a; color: #04140a; border-color: #39ff6a; }
   #hint.hide { display: none; }
-  #start { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,8,16,.78); color: #f2eee4; overflow: auto; }
+  #start { position: fixed; inset: 0; display: none; align-items: flex-end; justify-content: center; background: radial-gradient(ellipse at 50% 35%, rgba(5,8,16,.05), rgba(5,8,16,.55)); color: #f2eee4; overflow: auto; pointer-events: none; }
   #start.on { display: flex; }
-  #start .card { width: min(440px, 100%); padding: 22px 20px calc(22px + env(safe-area-inset-bottom)); box-sizing: border-box; }
-  #start h1 { font-size: 44px; font-weight: 800; margin: 0 0 2px; letter-spacing: -1.5px; }
+  #start .card { pointer-events: auto; width: min(440px, 100%); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); box-sizing: border-box; background: rgba(5,8,16,.74); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(255,255,255,.1); border-radius: 18px 18px 0 0; }
+  @media (min-width: 820px) { #start { align-items: center; justify-content: flex-end; padding-right: 5vw; } #start .card { border-radius: 18px; padding-bottom: 18px; } }
+  body.menu #hud, body.menu #board, body.menu #feed, body.menu #minilabel, body.menu #hint, body.menu #view, body.menu #cine { display: none !important; }
+  #start h1 { font-size: 40px; font-weight: 800; margin: 0 0 2px; letter-spacing: -1.5px; }
   #start h1 span { color: #39ff6a; }
   #start .tag { margin: 0 0 18px; opacity: .7; font-size: 14px; }
-  #start label { display: block; font-size: 13px; opacity: .75; margin: 14px 0 6px; }
+  #start label { display: block; font-size: 13px; opacity: .75; margin: 11px 0 5px; }
   #presets { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
   #presets button { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 8px 4px 6px; color: #f2eee4; font: 12px system-ui, sans-serif; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 6px; }
   #presets button.sel { border-color: #39ff6a; background: rgba(57,255,106,.12); }
@@ -53,22 +55,36 @@
   .vols label { margin: 0 0 4px; }
   .vols input[type=range] { width: 100%; accent-color: #39ff6a; }
   #mute { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 128px; background: rgba(255,255,255,.08); color: #f2eee4; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 8px 12px; font: 600 13px system-ui, sans-serif; cursor: pointer; }
-  #play { width: 100%; margin-top: 18px; background: #39ff6a; color: #04140a; border: 0; border-radius: 24px; padding: 14px; font: 700 16px system-ui, sans-serif; cursor: pointer; }
+  #play { width: 100%; margin-top: 14px; background: #39ff6a; color: #04140a; border: 0; border-radius: 24px; padding: 14px; font: 700 16px system-ui, sans-serif; cursor: pointer; }
   #play:focus-visible, #name:focus-visible { outline: 2px solid #fff; }
+  #feed { position: fixed; top: calc(max(14px, env(safe-area-inset-top)) + 68px); left: 16px; color: #f2eee4; font-size: 12px; line-height: 1.55; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.8); max-width: 46vw; }
+  #feed div { opacity: .9; }
+  #feed b { color: #39ff6a; font-weight: 600; }
+  #minilabel { position: fixed; left: 16px; color: #b9b3a6; font-size: 11px; pointer-events: none; text-shadow: 0 1px 3px #000; }
+  #hint { left: calc(min(150px, 30vw) + 24px); }
+  #cine { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 178px; background: rgba(255,255,255,.08); color: #f2eee4; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 8px 12px; font: 600 13px system-ui, sans-serif; cursor: pointer; }
+  body.cine #hud, body.cine #view, body.cine #mute, body.cine #board, body.cine #hint, body.cine #feed, body.cine #minilabel, body.cine #spec { display: none !important; }
+  body.cine #cine { opacity: .25; }
+  #best, #overbest { font-size: 13px; opacity: .7; margin: 6px 0 0; }
+  #overbest.new { color: #39ff6a; opacity: 1; font-weight: 600; }
 </style>
 </head>
 <body>
 <div id="hud"><div id="len">10</div><div id="sub">segments</div></div>
 <button id="view">Chase view</button>
 <button id="mute" aria-label="Mute">🔊</button>
+<button id="cine" aria-label="Cinematic mode" title="Cinematic mode (V)">🎬</button>
+<div id="feed"></div>
+<div id="minilabel">far side</div>
 <div id="board"></div>
-<div id="hint">Steer: move the mouse (the centipede follows), ← → or A/D, or touch left / right side of the screen. Hold the mouse button, space or two fingers to boost (costs length). Pinch, scroll or +/− to zoom. Run into a body and you die; the dead leave jelly. Portals are open while green — if one closes on your tail, you lose it. Sinkholes and storms pull you in — boost to escape.</div>
+<div id="hint">Steer: move the mouse (the centipede follows), ← → or A/D, or touch left / right side of the screen. Hold the mouse button, space or two fingers to boost (costs length). Pinch, scroll or +/− to zoom. V hides the UI for filming. Run into a body and you die; the dead leave jelly. Portals are open while green — if one closes on your tail, you lose it. Sinkholes and storms pull you in — boost to escape.</div>
 <div id="flash"></div>
-<div id="over"><h1 id="overtitle">Swallowed by a sinkhole</h1><p id="overlen"></p><div class="row"><button id="again">Play again</button><button id="watch" class="ghost">Watch</button><button id="relook" class="ghost">Change look</button></div></div>
+<div id="over"><h1 id="overtitle">Swallowed by a sinkhole</h1><p id="overlen"></p><p id="overbest"></p><div class="row"><button id="again">Play again</button><button id="share" class="ghost">Share</button><button id="watch" class="ghost">Watch</button><button id="relook" class="ghost">Change look</button></div></div>
 <div id="spec"><span id="specwho">Watching your remains</span><button id="follow">Follow Boss</button><button id="again2" class="go">Play again</button><button id="relook2">Change look</button></div>
 <div id="start"><div class="card">
   <h1>centi<span id="tld"></span></h1>
   <p class="tag">Eat, grow, and don't fall in.</p>
+  <p id="best"></p>
   <label>Pick a body</label>
   <div id="presets"></div>
   <label>Or tune it</label>
@@ -89,6 +105,16 @@
   <button id="play">Play</button>
 </div></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ---------- analytics (PostHog) ----------
+// Project token from PostHog → Settings → Project. Write-only and safe in public apps. Leave empty and nothing is loaded or sent.
+const ANALYTICS = { key: 'phc_zuAWQfr46rfG6Y3xSEhnpRjMkAoxKUk6kAxcnBuXHmE9', host: 'https://us.i.posthog.com' };
+const track = (event, props) => { try { if (window.posthog && ANALYTICS.key) posthog.capture(event, props); } catch (e) {} };
+if (ANALYTICS.key) {
+  !function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}p||((p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",p.onerror=function(){p=null},(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r));var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],Object.defineProperty(u,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}}),Object.defineProperty(u.people,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(){return u.toString(1)+".people (stub)"}}),o="init capture register register_once unregister identify reset opt_in_capturing opt_out_capturing has_opted_out_capturing isFeatureEnabled getFeatureFlag onFeatureFlags reloadFeatureFlags group setPersonProperties".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+  posthog.init(ANALYTICS.key, { api_host: ANALYTICS.host, defaults: '2026-05-30', person_profiles: 'identified_only', autocapture: false, capture_pageview: true });
+}
+</script>
 <script>
 // ============================================================
 // centi – single-player prototype with bots
@@ -130,6 +156,10 @@ const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = new THRE
 function randUnit() { let v; do { v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1); } while (v.lengthSq() > 1 || v.lengthSq() < .01); return v.normalize(); }
 function tangentAt(p) { const v = randUnit(); v.sub(tmpV.copy(p).multiplyScalar(v.dot(p))); return v.lengthSq() < .01 ? tangentAt(p) : v.normalize(); }
 const rnd = (a, b) => a + Math.random() * (b - a);
+const store = {
+  get(k) { try { const v = localStorage.getItem('centi.' + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem('centi.' + k, JSON.stringify(v)); } catch (e) {} },
+};
 
 // stars
 {
@@ -321,7 +351,7 @@ function applyPull(p, dt) {
   return hit;
 }
 function resetStorms(t, from) {
-  for (const st of storms) { let pos; do { pos = randUnit(); } while (pos.angleTo(from) * R < 120 || storms.some(o => o !== st && o.p.angleTo(pos) * R < PULL_R * 2.5)); st.p = pos; st.h = tangentAt(pos); }
+  for (const st of storms) { let pos; do { pos = randUnit(); } while (pos.angleTo(from) * R < 170 || storms.some(o => o !== st && o.p.angleTo(pos) * R < PULL_R * 2.5)); st.p = pos; st.h = tangentAt(pos); }
 }
 const inStorm = p => storms.some(st => p.angleTo(st.p) * R < STORM_R * .8);
 function resetHoles(t) { holes.forEach((hole, i) => { hole.state = 'closed'; hole.grp.visible = false; hole.nextAt = t + 4 + i * 2.5 + Math.random() * 5; }); }
@@ -437,7 +467,8 @@ class Snake {
     this.trail.splice(0, idx);
     const remaining = this.trail.length - 1;
     this.targetLen = Math.max(10, remaining); this.curLen = Math.max(10, Math.min(this.curLen, remaining));
-    if (this === player) { Sound.snip(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
+    feedMsg((this === player ? 'You' : this.name) + ' lost ' + idx + ' segments to a portal');
+    if (this === player && !attract) { Sound.snip(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
   }
   die(t, reason) { this.alive = false; dropJelly(this, t); this.setVisible(false); this.respawnAt = t + 4 + Math.random() * 3; this.deathReason = reason; }
   move(dt, steerIn, boostIn) {
@@ -481,10 +512,13 @@ class Snake {
     }
     while (trail.length > Math.ceil(this.curLen) + 3) trail.shift();
   }
+  girth() { return 1 + Math.min(1, (this.curLen - 10) / 250); }     // doubles in width by ~260 segments
   draw(t) {
     if (!this.alive) return;
     const p = this.p, h = this.h, trail = this.trail;
-    this.head.position.copy(p).multiplyScalar(R + 2);
+    const girth = this.girth(), hs = .7 + .3 * girth;
+    this.head.scale.setScalar(hs);
+    this.head.position.copy(p).multiplyScalar(R + 2 * hs);
     this.head.up.copy(p);
     this.head.lookAt(tmpV.copy(p).addScaledVector(h, .1).multiplyScalar(R + 2));
     // Segment i sits exactly (i+1)*SEG behind the head, interpolated between recorded trail points, so it glides.
@@ -498,7 +532,7 @@ class Snake {
       ptA.copy(trail[n - 1 - i]); ptB.copy(trail[n - 2 - i]);
       const cut = ptA.angleTo(ptB) * R > SEG * 3;
       if (cut) pt.copy(ptA); else pt.lerpVectors(ptA, ptB, u).normalize();
-      let scale = 1.7 - (i / Math.max(count, 1)) * .8;
+      let scale = (1.7 - (i / Math.max(count, 1)) * .8) * girth;
       if (i === count - 1 && frac > 0) scale *= .35 + .65 * frac;
       tmpV.copy(pt).multiplyScalar(R + scale);
       tmpM.compose(tmpV, tmpQ, tmpS.set(scale, scale, scale));
@@ -599,7 +633,8 @@ function botThink(s, t, dt) {
     st.retarget = t + rnd(1.2, 3);
     st.target = null; let bestD = 1e9;
     const huntR = s.huntRange || cfg.hunt;
-    if (huntR && player.alive && player.p.angleTo(s.p) * R < huntR) {
+    const grace = player.curLen < 30 || t - runStart < 20;               // nobody hunts a newcomer
+    if (huntR && !grace && player.alive && !player.dying && player.p.angleTo(s.p) * R < huntR) {
       st.target = tmpV.copy(player.p).addScaledVector(player.h, 16 / R).normalize().clone();   // cut across the player's path
       st.hunting = true;
     } else {
@@ -752,24 +787,37 @@ cH.addEventListener('input', () => { look.head = cH.value; clearPreset(); applyL
 cL.addEventListener('input', () => { look.legs = cL.value; clearPreset(); applyLook(); });
 [...patternEl.children].forEach(b => b.addEventListener('click', () => { look.pattern = b.dataset.p; clearPreset(); syncInputs(); applyLook(); }));
 nameEl.addEventListener('input', () => { look.name = nameEl.value.trim(); player.name = look.name || 'You'; applyLook(); });
+{ const saved = store.get('look'); if (saved) { Object.assign(look, saved); player.name = look.name || 'You'; nameEl.value = look.name || ''; presetsEl.children[0].classList.remove('sel'); const m = PRESETS.findIndex(pr => pr[1] === look.a && pr[2] === look.b && pr[3] === look.head && pr[4] === look.legs && pr[5] === look.pattern); if (m >= 0) presetsEl.children[m].classList.add('sel'); } }
 syncInputs(); applyLook();
 
 // ---------- game state ----------
-let paused = true, gameOverFlag = false, planetView = true, snapCam = true;
+let paused = true, gameOverFlag = false, planetView = true, snapCam = true, cinematic = false, killcam = null, attract = false;
+const feedEl = document.getElementById('feed'), feed = [];
+function feedMsg(text) { feed.push({ text, until: performance.now() / 1000 + 8 }); if (feed.length > 5) feed.shift(); renderFeed(); }
+function renderFeed() { feedEl.innerHTML = feed.map(f => '<div>' + f.text + '</div>').join(''); }
+const who = sn => sn === player ? '<b>' + esc(player.name === 'You' ? 'You' : player.name) + '</b>' : esc(sn.name);
+let best = store.get('best') || { len: 0, kills: 0, secs: 0 };
+const fmtTime = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+function renderBest() { document.getElementById('best').textContent = best.len ? 'Your best: ' + best.len + ' segments · ' + best.kills + (best.kills === 1 ? ' kill · ' : ' kills · ') + fmtTime(best.secs) : ''; }
 const startEl = document.getElementById('start'), overEl = document.getElementById('over'), flash = document.getElementById('flash');
 const lenEl = document.getElementById('len'), boardEl = document.getElementById('board');
 function now() { return performance.now() / 1000; }
 const esc = str => String(str).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 function startRun() {
   const t = now();
+  attract = false; player.ai = null; player.aiState = null; document.body.classList.remove('menu');
   player.spawn(START_POS, t);
   bots.forEach(b => b.spawn(spawnAway(t, player.p), t));
   jelly.length = 0; resetHoles(t);
   foodMesh.instanceColor.needsUpdate = true;
   resetStorms(t, player.p);
-  paused = false; gameOverFlag = false; snapCam = true;
+  paused = false; gameOverFlag = false; snapCam = true; killcam = null; player.dying = false;
   overEl.classList.remove('on');
+  feed.length = 0; renderFeed();
+  runStart = t; runPortals = 0;
+  track('run_start', { preset: [...presetsEl.children].findIndex(b => b.classList.contains('sel')), pattern: look.pattern, named: !!look.name, touch: matchMedia('(pointer: coarse)').matches, view: planetView ? 'planet' : 'chase' });
 }
+let runStart = 0, runPortals = 0;
 let spectating = false, followIdx = -1;        // -1 = where you died, otherwise bots[followIdx]
 const specEl = document.getElementById('spec'), hintEl = document.getElementById('hint');
 // free look while spectating: drag to spin the globe
@@ -797,20 +845,51 @@ function startWatching() { spectating = true; overEl.classList.remove('on'); spe
 function stopWatching() { spectating = false; specEl.classList.remove('on'); hintEl.classList.remove('hide'); }
 function gameOver(title) {
   gameOverFlag = true;
+  const secs = Math.round(now() - runStart), len = Math.floor(player.curLen);
+  const isNew = len > best.len;
+  if (isNew) { best = { len, kills: player.kills, secs }; store.set('best', best); renderBest(); }
+  const ob = document.getElementById('overbest');
+  ob.textContent = isNew ? 'New personal best!' : (best.len ? 'Best: ' + best.len + ' segments · ' + fmtTime(best.secs) : '');
+  ob.classList.toggle('new', isNew);
+  track('run_end', { reason: title.replace(/ with .*| by .*/, ''), killer: (title.match(/(?:with|by) (.*)$/) || [])[1] || null, length: Math.floor(player.curLen), kills: player.kills, seconds: Math.round(now() - runStart), portals: runPortals });
   document.getElementById('overtitle').textContent = title;
   document.getElementById('overlen').textContent = 'You reached ' + Math.floor(player.curLen) + ' segments' + (player.kills ? ' and ate ' + player.kills + (player.kills === 1 ? ' centipede.' : ' centipedes.') : '.');
   overEl.classList.add('on');
 }
 [startEl, overEl].forEach(el => el.addEventListener('pointerdown', e => e.stopPropagation()));
-document.getElementById('play').addEventListener('click', () => { Sound.init(); startEl.classList.remove('on'); player.kills = 0; startRun(); });
+document.getElementById('play').addEventListener('click', () => { Sound.init(); store.set('look', look); startEl.classList.remove('on'); player.kills = 0; startRun(); });
+renderBest();
 document.getElementById('again').addEventListener('click', () => { player.kills = 0; startRun(); });
 document.getElementById('again2').addEventListener('click', () => { stopWatching(); player.kills = 0; startRun(); });
-document.getElementById('watch').addEventListener('click', startWatching);
+document.getElementById('watch').addEventListener('click', () => { track('watch'); startWatching(); });
+document.getElementById('share').addEventListener('click', async () => {
+  const secs = Math.round(now() - runStart), text = 'I survived ' + fmtTime(secs) + ' and ate ' + player.kills + (player.kills === 1 ? ' centipede' : ' centipedes') + ' on centi. Beat that:';
+  const url = location.href.split('#')[0];
+  track('share', { length: Math.floor(player.curLen) });
+  try {
+    if (navigator.share) await navigator.share({ title: 'centi', text, url });
+    else { await navigator.clipboard.writeText(text + ' ' + url); const b = document.getElementById('share'); b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Share', 1800); }
+  } catch (e) {}
+});
+// cinematic mode: hides the UI and lets the camera drift around the player — for recording clips
+const cineBtn = document.getElementById('cine');
+function toggleCine() { cinematic = !cinematic; document.body.classList.toggle('cine', cinematic); camera.fov = cinematic ? 50 : 62; camera.updateProjectionMatrix(); snapCam = true; }
+cineBtn.addEventListener('click', toggleCine);
+cineBtn.addEventListener('pointerdown', e => e.stopPropagation());
 document.getElementById('follow').addEventListener('click', () => setFollow(followIdx + 1 >= bots.length ? -1 : followIdx + 1));
 document.getElementById('relook2').addEventListener('click', () => { stopWatching(); showStart(); });
 specEl.addEventListener('pointerdown', e => e.stopPropagation());
 const START_POS = new THREE.Vector3(0.3, 0.2, 1).normalize();
-function showStart() { stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); paused = true; player.spawn(START_POS, now()); bots.forEach(b => b.setVisible(false)); snapCam = true; }
+// the menu sits over a live world: bots hunt, hazards run, and your centipede wanders the globe untouchable so you can see what you're building
+function showStart() {
+  stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
+  const t = now();
+  attract = true; paused = false; gameOverFlag = false; killcam = null; player.dying = false;
+  player.ai = 'easy'; player.aiState = null; player.spawn(START_POS, t);
+  bots.forEach(b => { if (!b.alive) b.spawn(spawnAway(t, player.p), t); });
+  if (!holes.some(h => h.state !== 'closed')) resetHoles(t);
+  snapCam = true;
+}
 document.getElementById('relook').addEventListener('click', showStart);
 showStart();
 
@@ -829,6 +908,7 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
   if (e.code === 'KeyC') toggleView();
+  if (e.code === 'KeyV') toggleCine();
   if (e.code === 'Equal' || e.code === 'NumpadAdd') { userZoom *= .85; clampZoom(); }
   if (e.code === 'Minus' || e.code === 'NumpadSubtract') { userZoom /= .85; clampZoom(); }
 });
@@ -875,14 +955,47 @@ const endTouch = e => { if (drag && e.pointerId === drag.id) drag = null; if (e.
 addEventListener('pointerup', endTouch); addEventListener('pointercancel', endTouch);
 addEventListener('wheel', e => { userZoom *= Math.exp(e.deltaY * .0012); clampZoom(); }, { passive: true });
 
+// ---------- minimap: the far side of the globe, so nothing can sneak up from behind ----------
+const miniScene = new THREE.Scene();
+miniScene.background = new THREE.Color(0x0a0e18);
+const miniCam = new THREE.PerspectiveCamera(38, 1, 10, 5000);
+miniScene.add(new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), new THREE.MeshBasicMaterial({ color: 0x1b2540 })));
+miniScene.add(new THREE.Mesh(new THREE.SphereGeometry(R + 1, 24, 12), new THREE.MeshBasicMaterial({ color: 0x3a4a70, wireframe: true, transparent: true, opacity: .35 })));
+const MINI_N = 48;
+const miniDots = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }), MINI_N);
+for (let i = 0; i < MINI_N; i++) miniDots.setColorAt(i, BOOST_COLOR);
+miniDots.instanceColor.needsUpdate = true;
+miniScene.add(miniDots);
+const miniCol = new THREE.Color();
+const miniLabel = document.getElementById('minilabel');
+function drawMini(p) {
+  let k = 0;
+  const put = (v, size, hex) => { if (k >= MINI_N) return; tmpV.copy(v).multiplyScalar(R + size * .6); tmpM.compose(tmpV, tmpQ, tmpS.set(size, size, size)); miniDots.setMatrixAt(k, tmpM); miniDots.setColorAt(k, miniCol.set(hex)); k++; };
+  portals.forEach((n, i) => put(n, 11, portalState[i].open ? (portalState[i].left < 5 ? 0xffb02e : 0x39ff6a) : 0xff3b3b));
+  for (const st of storms) put(st.p, 16, 0xe6e9ef);
+  for (const hole of holes) if (hole.state !== 'closed') put(hole.n, 8, 0x000000);
+  for (const sn of snakes) if (sn.alive) put(sn.p, 6 + Math.min(10, sn.curLen / 40), sn === player ? 0x39ff6a : sn.ai === 'hard' ? 0xff3b3b : sn.ai === 'medium' ? 0xff9f1c : 0xffe066);
+  miniDots.count = k; miniDots.instanceMatrix.needsUpdate = true; miniDots.instanceColor.needsUpdate = true;
+  miniCam.position.copy(p).multiplyScalar(-R * 3.2); miniCam.up.copy(camUpRef); miniCam.lookAt(0, 0, 0);
+  const size = Math.min(150, Math.floor(innerWidth * .3));
+  const y = 48;
+  renderer.setScissorTest(true);
+  renderer.setViewport(12, y, size, size); renderer.setScissor(12, y, size, size);
+  renderer.render(miniScene, miniCam);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  miniLabel.style.bottom = (y + size + 2) + 'px';
+}
+
 // ---------- loop ----------
 const camTarget = new THREE.Vector3(), camPos = new THREE.Vector3();
 const camUpRef = new THREE.Vector3(0, 1, 0);               // parallel-transported "up" so planet view doesn't spin
 let last = performance.now(), boardTimer = 0;
 
 function frame(nowMs) {
-  const dt = Math.min((nowMs - last) / 1000, .05); last = nowMs;
+  const dtReal = Math.min((nowMs - last) / 1000, .05); last = nowMs;
   const t = nowMs / 1000;
+  const dt = killcam ? dtReal * .28 : dtReal;       // slow motion while the killcam plays
   const running = !paused;
 
   // portals: each pole runs its own clock (green → amber at 5 s left → red at 1 s left, then gone).
@@ -903,15 +1016,16 @@ function frame(nowMs) {
   for (const sn of snakes) if (sn.cutPoint && sn.trail.indexOf(sn.cutPoint) <= 0) { sn.cutPoint = null; sn.cutPortal = -1; }
 
   if (running) {
-    // player input
-    if (player.alive) {
+    // player input (or, on the menu, a gentle wander)
+    if (attract && player.alive) { const cmd = botThink(player, t, dt); player.move(dt, cmd.steer, false); }
+    else if (player.alive && !player.dying) {
     let s = 0;
     if (keys.ArrowLeft || keys.KeyA) s -= 1;
     if (keys.ArrowRight || keys.KeyD) s += 1;
     if (s === 0 && touches.size === 0 && mouse.active) s = mouseSteer();
     if (touches.size === 1) s = [...touches.values()][0].side;
     const boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching);
-    if (player.move(dt, s, boost)) { snapCam = true; Sound.portal(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
+    if (player.move(dt, s, boost)) { snapCam = true; runPortals++; Sound.portal(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
     }
 
     // bots
@@ -931,36 +1045,39 @@ function frame(nowMs) {
         const f = food[i];
         if (f.respawnAt <= t && sn.p.angleTo(f.p) * R < (f.boost ? 7 : 4)) {
           sn.targetLen += f.boost ? Math.max(4, sn.targetLen * .25) : 1;
-          if (sn === player) Sound.eat(f.boost);
+          if (sn === player && !attract) Sound.eat(f.boost);
           const rs = f.boost ? BOOST_RESPAWN : FOOD_RESPAWN;
           f.p = randUnit(); f.respawnAt = t + rs[0] + Math.random() * (rs[1] - rs[0]);
         }
       }
-      for (let i = jelly.length - 1; i >= 0; i--) if (sn.p.angleTo(jelly[i].p) * R < 3.6) { sn.targetLen += 2; jelly.splice(i, 1); if (sn === player) Sound.jelly(); }
+      for (let i = jelly.length - 1; i >= 0; i--) if (sn.p.angleTo(jelly[i].p) * R < 3.6) { sn.targetLen += 2; jelly.splice(i, 1); if (sn === player && !attract) Sound.jelly(); }
     }
 
     // collisions: head into any other body, head-to-head, sinkholes
     const dead = [];
     for (const sn of snakes) {
-      if (!sn.alive) continue;
+      if (!sn.alive || sn.dying || (attract && sn === player)) continue;
       if (inHole(sn.p)) { dead.push([sn, 'Swallowed by a sinkhole', null]); continue; }
       if (inStorm(sn.p)) { dead.push([sn, 'Swept away by the storm', null]); continue; }
       for (const o of snakes) {
         if (o === sn || !o.alive) continue;
         const dh = sn.p.distanceTo(o.p) * R;
-        if (dh < HIT_R * 1.2) { dead.push([sn, 'Head-on with ' + o.name, o]); break; }
-        if (dh > o.trail.length * SEG + HIT_R + 2) continue;
+        const hr = HIT_R * (.55 + .45 * o.girth());                       // fatter bodies are easier to hit
+        if (dh < hr * 1.2) { dead.push([sn, 'Head-on with ' + o.name, o]); break; }
+        if (dh > o.trail.length * SEG + hr + 2) continue;
         let hit = false;
-        for (let i = 0; i < o.trail.length; i++) if (sn.p.distanceTo(o.trail[i]) * R < HIT_R) { hit = true; break; }
+        for (let i = 0; i < o.trail.length; i++) if (sn.p.distanceTo(o.trail[i]) * R < hr) { hit = true; break; }
         if (hit) { dead.push([sn, 'Eaten by ' + o.name, o]); break; }
       }
     }
     for (const [sn, why, killer] of dead) {
-      if (!sn.alive) continue;
-      if (killer && killer.alive) { killer.kills++; if (killer === player) Sound.kill(); }
-      sn.die(t, why);
-      if (sn === player) { Sound.death(); gameOver(why); }
+      if (!sn.alive || sn.dying) continue;
+      if (killer && killer.alive) { killer.kills++; if (killer === player) { Sound.kill(); track('kill', { victim: sn.name, tier: sn.ai, length: Math.floor(player.curLen) }); } }
+      feedMsg(why.startsWith('Eaten') ? who(killer) + ' ate ' + who(sn) : why.startsWith('Head-on') ? who(sn) + ' and ' + who(killer) + ' collided' : why.startsWith('Swallowed') ? who(sn) + ' fell into a sinkhole' : who(sn) + (sn === player ? ' were' : ' was') + ' swept away by a storm');
+      if (sn === player) { player.dying = true; killcam = { start: t, until: t + 2.3, why }; Sound.death(); snapCam = true; }
+      else sn.die(t, why);
     }
+    if (killcam && t >= killcam.until) { player.die(t, killcam.why); const why = killcam.why; killcam = null; player.dying = false; gameOver(why); }
   }
 
   // draw
@@ -975,7 +1092,16 @@ function frame(nowMs) {
   const camSnake = spectating && followIdx >= 0 ? bots[followIdx] : player;
   const p = camSnake.p, h = camSnake.h;
   camUpRef.sub(tmpV.copy(p).multiplyScalar(camUpRef.dot(p))).normalize();
-  if (spectating && specFree) {
+  if (killcam || attract || (cinematic && !spectating)) {
+    // killcam: slow orbit around the moment of death. cinematic / menu: the same drift, forever.
+    const a = killcam ? (t - killcam.start) * .9 + .6 : t * .22;
+    tmpV2.copy(h).applyAxisAngle(p, a);
+    camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : attract ? 48 : 60 * userZoom));
+    if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(.02, dtReal));
+    camera.up.copy(p);
+    camera.lookAt(camTarget.copy(p).addScaledVector(h, .05).normalize().multiplyScalar(R + 3));
+    if (attract) { if (innerWidth >= 820) camera.translateX(26); else camera.translateY(-22); }   // keep the centipede in the space the card leaves free
+  } else if (spectating && specFree) {
     const vh = camera.fov * Math.PI / 360, hh = Math.atan(Math.tan(vh) * camera.aspect);
     const d = Math.max(R + 45, R / Math.sin(Math.min(vh, hh)) * 1.06 * userZoom);
     camPos.copy(specDir).multiplyScalar(d);
@@ -1011,9 +1137,12 @@ function frame(nowMs) {
     boardEl.innerHTML = rows.map(x => '<div' + (x === player ? ' class="me"' : '') + '>' + (rank(x) + 1) + '. ' + esc(x.name) + (x.isBot ? ' <span style="opacity:.55">(' + x.ai + ')</span>' : '') + ' <b>' + Math.floor(x.curLen) + '</b></div>').join('');
   }
 
-  Sound.setBoost(player.alive && player.boost);
-  Sound.setRumble(player.alive ? (player.pullK || 0) : 0);
+  if (boardTimer === .5) { let ch = false; for (let i = feed.length - 1; i >= 0; i--) if (feed[i].until < t) { feed.splice(i, 1); ch = true; } if (ch) renderFeed(); }
+
+  Sound.setBoost(player.alive && player.boost && !player.dying);
+  Sound.setRumble(player.alive && !player.dying ? (player.pullK || 0) : 0);
   renderer.render(scene, camera);
+  if (!cinematic && !attract) drawMini(p); else miniLabel.style.bottom = '-100px';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
