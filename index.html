@@ -880,14 +880,12 @@ document.getElementById('follow').addEventListener('click', () => setFollow(foll
 document.getElementById('relook2').addEventListener('click', () => { stopWatching(); showStart(); });
 specEl.addEventListener('pointerdown', e => e.stopPropagation());
 const START_POS = new THREE.Vector3(0.3, 0.2, 1).normalize();
-// the menu sits over a live world: bots hunt, hazards run, and your centipede wanders the globe untouchable so you can see what you're building
+// the menu shows your centipede on a frozen globe; nothing moves until Play
 function showStart() {
   stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
-  const t = now();
-  attract = true; paused = false; gameOverFlag = false; killcam = null; player.dying = false;
-  player.ai = 'easy'; player.aiState = null; player.spawn(START_POS, t);
-  bots.forEach(b => { if (!b.alive) b.spawn(spawnAway(t, player.p), t); });
-  if (!holes.some(h => h.state !== 'closed')) resetHoles(t);
+  attract = false; paused = true; gameOverFlag = false; killcam = null; player.dying = false;
+  player.ai = null; player.aiState = null; player.spawn(START_POS, now());
+  bots.forEach(b => b.setVisible(false));
   snapCam = true;
 }
 document.getElementById('relook').addEventListener('click', showStart);
@@ -1092,16 +1090,15 @@ function frame(nowMs) {
   const camSnake = spectating && followIdx >= 0 ? bots[followIdx] : player;
   const p = camSnake.p, h = camSnake.h;
   camUpRef.sub(tmpV.copy(p).multiplyScalar(camUpRef.dot(p))).normalize();
-  if (killcam || attract || (cinematic && !spectating)) {
+  if (killcam || (cinematic && !spectating)) {
     // killcam: slow orbit around the moment of death. cinematic / menu: the same drift, forever.
     // orbit relative to a stable reference (camUpRef), never the heading — otherwise every turn swings the whole shot
     const a = killcam ? (t - killcam.start) * .9 + .6 : .55;   // menu / cinematic: fixed angle, no orbit — orbiting makes the ground rotate underneath
     tmpV2.copy(killcam ? h : camUpRef).applyAxisAngle(p, a);
-    camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : attract ? 48 : 60 * userZoom));
+    camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : 60 * userZoom));
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(killcam ? .02 : .3, dtReal));
     camera.up.copy(killcam ? h : camUpRef);   // looking almost straight down, so "up" must be a tangent, never the surface normal (that's what made it spin)
     camera.lookAt(camTarget.copy(p).multiplyScalar(R + 3));
-    if (attract) { if (innerWidth >= 820) camera.translateX(26); else camera.translateY(-22); }   // keep the centipede in the space the card leaves free
   } else if (spectating && specFree) {
     const vh = camera.fov * Math.PI / 360, hh = Math.atan(Math.tan(vh) * camera.aspect);
     const d = Math.max(R + 45, R / Math.sin(Math.min(vh, hh)) * 1.06 * userZoom);
@@ -1143,7 +1140,7 @@ function frame(nowMs) {
   Sound.setBoost(player.alive && player.boost && !player.dying);
   Sound.setRumble(player.alive && !player.dying ? (player.pullK || 0) : 0);
   renderer.render(scene, camera);
-  if (!cinematic && !attract) drawMini(p); else miniLabel.style.bottom = '-100px';
+  if (!cinematic && !paused) drawMini(p); else miniLabel.style.bottom = '-100px';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
