@@ -1099,7 +1099,7 @@ function frame(nowMs) {
     tmpV2.copy(killcam ? h : camUpRef).applyAxisAngle(p, a);
     camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : attract ? 48 : 60 * userZoom));
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(killcam ? .02 : .3, dtReal));
-    camera.up.copy(p);
+    camera.up.copy(killcam ? h : camUpRef);   // looking almost straight down, so "up" must be a tangent, never the surface normal (that's what made it spin)
     camera.lookAt(camTarget.copy(p).multiplyScalar(R + 3));
     if (attract) { if (innerWidth >= 820) camera.translateX(26); else camera.translateY(-22); }   // keep the centipede in the space the card leaves free
   } else if (spectating && specFree) {
