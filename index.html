@@ -1017,7 +1017,7 @@ function frame(nowMs) {
 
   if (running) {
     // player input (or, on the menu, a gentle wander)
-    if (attract && player.alive) { const cmd = botThink(player, t, dt); player.move(dt, cmd.steer, false); }
+    if (attract && player.alive) { const cmd = botThink(player, t, dt); player.speedMul = .7; player.move(dt, cmd.steer * .6, false); player.speedMul = 1; }
     else if (player.alive && !player.dying) {
     let s = 0;
     if (keys.ArrowLeft || keys.KeyA) s -= 1;
@@ -1094,12 +1094,13 @@ function frame(nowMs) {
   camUpRef.sub(tmpV.copy(p).multiplyScalar(camUpRef.dot(p))).normalize();
   if (killcam || attract || (cinematic && !spectating)) {
     // killcam: slow orbit around the moment of death. cinematic / menu: the same drift, forever.
-    const a = killcam ? (t - killcam.start) * .9 + .6 : t * .22;
-    tmpV2.copy(h).applyAxisAngle(p, a);
+    // orbit relative to a stable reference (camUpRef), never the heading — otherwise every turn swings the whole shot
+    const a = killcam ? (t - killcam.start) * .9 + .6 : t * .12;
+    tmpV2.copy(killcam ? h : camUpRef).applyAxisAngle(p, a);
     camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : attract ? 48 : 60 * userZoom));
-    if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(.02, dtReal));
+    if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(killcam ? .02 : .3, dtReal));
     camera.up.copy(p);
-    camera.lookAt(camTarget.copy(p).addScaledVector(h, .05).normalize().multiplyScalar(R + 3));
+    camera.lookAt(camTarget.copy(p).multiplyScalar(R + 3));
     if (attract) { if (innerWidth >= 820) camera.translateX(26); else camera.translateY(-22); }   // keep the centipede in the space the card leaves free
   } else if (spectating && specFree) {
     const vh = camera.fov * Math.PI / 360, hh = Math.atan(Math.tan(vh) * camera.aspect);
