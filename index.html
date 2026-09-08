@@ -117,6 +117,8 @@
   #playonline { width: 100%; margin-top: 8px; background: transparent; color: #f2eee4; border: 1px solid rgba(255,255,255,.35); border-radius: 24px; padding: 12px; font: 600 15px system-ui, sans-serif; cursor: pointer; }
   #playonline:focus-visible { outline: 2px solid #fff; }
   #netstatus { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); display: none; background: rgba(5,8,16,.8); border: 1px solid rgba(255,255,255,.2); border-radius: 12px; padding: 12px 20px; color: #f2eee4; font-size: 14px; }
+  #netcancel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, 34px); display: none; background: transparent; color: #f2eee4; border: 1px solid rgba(255,255,255,.35); border-radius: 20px; padding: 8px 18px; font: 600 13px system-ui, sans-serif; cursor: pointer; z-index: 5; }
+  #netcancel:focus-visible { outline: 2px solid #fff; }
 </style>
 </head>
 <body>
@@ -130,6 +132,7 @@
 <div id="hint">Steer: move the mouse (the centipede follows), ← → or A/D, or touch left / right side of the screen. Hold the mouse button, space or two fingers to boost (costs length). Pinch, scroll or +/− to zoom. V hides the UI for filming. Run into a body and you die; the dead leave jelly. Portals are open while green — if one closes on your tail, you lose it. Sinkholes and storms pull you in — boost to escape.</div>
 <div id="flash"></div>
 <div id="netstatus"></div>
+<button id="netcancel">× Back to the menu</button>
 <div id="over"><h1 id="overtitle">Swallowed by a sinkhole</h1><p id="overlen"></p><p id="overbest"></p><div class="row"><button id="again">Play again</button><button id="share" class="ghost">Share</button><button id="watch" class="ghost">Watch</button><button id="relook" class="ghost">Change look</button></div></div>
 <div id="spec"><span id="specwho">Watching your remains</span><button id="follow">Follow Boss</button><button id="again2" class="go">Play again</button><button id="relook2">Change look</button></div>
 <div id="start"><div class="card">
@@ -189,6 +192,21 @@ if (ANALYTICS.key) {
   !function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}p||((p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",p.onerror=function(){p=null},(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r));var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],Object.defineProperty(u,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e}}),Object.defineProperty(u.people,"toString",{configurable:!0,enumerable:!0,writable:!0,value:function(){return u.toString(1)+".people (stub)"}}),o="init capture register register_once unregister identify reset opt_in_capturing opt_out_capturing has_opted_out_capturing isFeatureEnabled getFeatureFlag onFeatureFlags reloadFeatureFlags group setPersonProperties".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
   posthog.init(ANALYTICS.key, { api_host: ANALYTICS.host, defaults: '2026-05-30', person_profiles: 'identified_only', autocapture: false, capture_pageview: true });
 }
+</script>
+<script>
+// A connection can hang on a sleeping server or a bad network. The status box must never trap you:
+// this button (and Esc) always gets you back to the menu, whatever the game is doing.
+(function () {
+  const status = document.getElementById('netstatus'), cancel = document.getElementById('netcancel');
+  const shown = () => cancel.style.display === 'block';
+  const leave = () => { cancel.style.display = 'none'; location.reload(); };
+  cancel.addEventListener('click', leave);
+  cancel.addEventListener('pointerdown', e => e.stopPropagation());
+  addEventListener('keydown', e => { if (e.code === 'Escape' && shown()) leave(); });
+  const sync = () => { const on = status.style.display && status.style.display !== 'none'; cancel.style.display = on ? 'block' : 'none'; };
+  new MutationObserver(sync).observe(status, { attributes: true, attributeFilter: ['style'], childList: true });
+  sync();
+})();
 </script>
 <script src="sim.js"></script>
 <script src="net.js"></script>
