@@ -1,0 +1,9 @@
+{
+  "name": "centi-server",
+  "version": "1.0.0",
+  "description": "Authoritative game server for centi.gg",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "three": "^0.128.0", "ws": "^8.18.0" }
+}

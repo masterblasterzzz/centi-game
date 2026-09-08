@@ -1,0 +1,25 @@
+# centi.gg game server — one small machine in Sydney.
+app = "centi-server"
+primary_region = "syd"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"     # sleeps when nobody is playing
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.health]
+  type = "http"
+  grace_period = "10s"
+  interval = "30s"
+  timeout = "5s"
+  method = "get"
+  path = "/health"
