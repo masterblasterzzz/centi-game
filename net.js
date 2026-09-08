@@ -1,6 +1,6 @@
 // centi — network layer. Mirrors the server's world into the same CentiSim objects the
 // renderer already knows how to draw, and smooths between the 10-per-second snapshots.
-// If the socket drops, the caller falls back to the local simulation.
+// If the socket drops or never answers, the caller falls back to the local simulation.
 (function (root) {
   'use strict';
   const THREE = root.THREE, CentiSim = root.CentiSim;
@@ -9,7 +9,9 @@
   class Net {
     constructor(url, world, opts) {
       this.url = url; this.world = world; this.opts = opts || {};
-      this.ws = null; this.id = null; this.ready = false;
+      this.ws = null; this.id = null; this.ready = false; this.cancelled = false;
+      this.timeoutMs = this.opts.timeoutMs || 9000;   // the machine may be asleep; wait, but not forever
+      this.timer = null;
       this.lag = 0.12;                 // render this far behind the server so gaps are covered
       this.serverT = 0; this.renderT = 0;
       this.buffer = new Map();         // snake id -> [{t, p, h, len}] recent server positions
@@ -20,14 +22,18 @@
     connect(name, look) {
       this.name = name; this.look = look;
       let ws;
-      try { ws = new WebSocket(this.url); } catch (e) { this.onClose('bad url'); return; }
+      try { ws = new WebSocket(this.url); } catch (e) { this.fail('bad-url'); return; }
       this.ws = ws;
+      this.timer = setTimeout(() => { if (!this.ready) this.fail('timeout'); }, this.timeoutMs);
       ws.onopen = () => ws.send(JSON.stringify({ type: 'join', name: this.name, look: this.look }));
-      ws.onclose = () => { this.ready = false; this.onClose('closed'); };
+      ws.onclose = () => { if (!this.cancelled) this.fail(this.ready ? 'closed' : 'refused'); };
       ws.onerror = () => { try { ws.close(); } catch (e) {} };
       ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch (e) { return; } this.handle(m); };
     }
-    disconnect() { this.ready = false; if (this.ws) { try { this.ws.onclose = null; this.ws.close(); } catch (e) {} this.ws = null; } }
+    fail(reason) { if (this.cancelled) return; this.cancelled = true; this.clearTimer(); this.ready = false; this.onClose(reason); }
+    clearTimer() { if (this.timer) { clearTimeout(this.timer); this.timer = null; } }
+    cancel() { this.cancelled = true; this.clearTimer(); this.disconnect(); }
+    disconnect() { this.cancelled = true; this.clearTimer(); this.ready = false; if (this.ws) { try { this.ws.onclose = null; this.ws.onmessage = null; this.ws.close(); } catch (e) {} this.ws = null; } }
     send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
     input(steer, boost) { this.send({ type: 'in', s: Math.round(steer * 100) / 100, b: !!boost }); }
     respawn() { this.send({ type: 'respawn' }); }
@@ -45,7 +51,7 @@
         for (const s of w.snakes.slice()) w.removeSnake(s.id);
         this.buffer.clear();
         for (const s of m.snakes) this.addSnake(s);
-        this.ready = true; this.onOpen(this.id);
+        this.ready = true; this.clearTimer(); this.onOpen(this.id);
         return;
       }
       if (m.type === 'snap') {
