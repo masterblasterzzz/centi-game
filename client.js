@@ -233,12 +233,13 @@ class SnakeView {
     this.body.visible = this.legs.visible = this.head.visible = vis;
     if (!vis) return;
     const p = sn.p, h = sn.h, trail = sn.trail;
-    if (trail.length < 2) return;
     const girth = sn.girth(), hs = .7 + .3 * girth;
     this.head.scale.setScalar(hs);
     this.head.position.copy(p).multiplyScalar(R + 2 * hs);
     this.head.up.copy(p);
     this.head.lookAt(tmpV.copy(p).addScaledVector(h, .1).multiplyScalar(R + 2));
+    // A snake that just joined has only its head recorded; draw the head and wait for the body.
+    if (trail.length < 2) { this.body.count = 0; this.legs.count = 0; this.body.instanceMatrix.needsUpdate = true; this.legs.instanceMatrix.needsUpdate = true; return; }
     // Segment i sits exactly (i+1)*SEG behind the head, interpolated between recorded trail points, so it glides.
     const n = trail.length;
     const headDist = trail[n - 1].angleTo(p) * R;
@@ -278,8 +279,15 @@ let player = world.addSnake({ name: 'You', look });
 let bots = world.addBots();
 const views = new Map();
 function syncViews() {
+  // A view is stale if its id has gone, OR if that id now belongs to a different snake object.
+  // The local and server worlds both number their snakes s1, s2, ... so the id alone is not enough:
+  // without the object check, joining a server leaves your view bound to a deleted local snake and
+  // your centipede never appears.
+  for (const [id, v] of [...views]) {
+    const s = world.snakes.find(x => x.id === id);
+    if (!s || s !== v.snake) { v.dispose(); views.delete(id); }
+  }
   for (const s of world.snakes) if (!views.has(s.id)) views.set(s.id, new SnakeView(s));
-  for (const [id, v] of views) if (!world.snakes.some(s => s.id === id)) { v.dispose(); views.delete(id); }
 }
 syncViews();
 const byId = id => world.snakes.find(s => s.id === id);
@@ -425,7 +433,16 @@ function goOnline() {
   netStatus('Connecting…');
   net = new CentiNet(SERVER_URL, world, {
     onOpen: () => { netStatus(''); syncViews(); snapCam = true; runStart = now(); track('run_start', { mode: 'online', pattern: look.pattern, named: !!look.name, touch: matchMedia('(pointer: coarse)').matches }); },
-    onClose: () => { if (online) { netStatus('Lost the server — back to solo'); online = false; net = null; setTimeout(() => { netStatus(''); showStart(); }, 2200); } },
+    onClose: reason => {
+      if (!online) return;
+      const msg = reason === 'timeout' ? "The server didn't answer — try again in a moment"
+        : reason === 'refused' || reason === 'bad-url' ? "Couldn't reach the server"
+        : 'Lost the server';
+      online = false; net = null;
+      netStatus(msg);
+      track('online_failed', { reason });
+      setTimeout(() => { if (!online) { netStatus(''); showStart(); } }, 2800);
+    },
     onEvents: evs => { syncViews(); handleEvents(evs, now()); },
     onSnake: () => syncViews(),
   });
@@ -545,9 +562,14 @@ const viewBtn = document.getElementById('view');
 function toggleView() { planetView = !planetView; snapCam = true; viewBtn.textContent = planetView ? 'Chase view' : 'Planet view'; }
 viewBtn.addEventListener('click', toggleView); viewBtn.addEventListener('pointerdown', e => e.stopPropagation());
 const touches = new Map();
-let userZoom = .6, pinchStart = 0, pinching = false;
+// Start wide enough to read the board: you can see the hazards around you before you commit to a direction.
+let userZoom = store.get('zoom') || .95, pinchStart = 0, pinching = false;
 const ZOOM_MIN = .3, ZOOM_MAX = 1.8;
-const clampZoom = () => { userZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, userZoom)); };
+let zoomSave = 0;
+const clampZoom = () => {
+  userZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, userZoom));
+  clearTimeout(zoomSave); zoomSave = setTimeout(() => store.set('zoom', userZoom), 600);   // remember what the player prefers
+};
 const pinchDist = () => { const a = [...touches.values()]; return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y); };
 addEventListener('keydown', e => {
   keys[e.code] = true;
