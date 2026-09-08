@@ -1,7 +1,7 @@
 // centi — simulation module.
 // Everything about how the game *works* lives here: movement on the sphere, bots, food, jelly, portals,
 // sinkholes, storms, collisions. Nothing about how it *looks*. The same file runs in the browser
-// (window.CentiSim) and in Node (module.exports), which is what lets a server own the world later.
+// (window.CentiSim) and in Node (module.exports), which is what lets the server own the world.
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('three'));
   else root.CentiSim = factory(root.THREE);
@@ -168,7 +168,7 @@
       for (let i = 0; i < C.STORM_N; i++) { const p = randUnit(); this.storms.push({ p, h: tangentAt(p), seed: Math.random() * 100 }); }
       this.portalState = [{ open: true, left: 20 }, { open: true, left: 18 }];
       this.events = [];          // what happened this step, for the client to react to (sounds, feed, killcam)
-      this.t = 0;
+      this.t = 0; this.nextJelly = 1;
     }
     // --- population ---
     addSnake(def) { const s = new Snake(def); this.snakes.push(s); return s; }
@@ -208,12 +208,15 @@
           if (t >= hole.nextAt) {
             let n; do { n = randUnit(); } while (avoid.some(a => n.angleTo(a) * R < 45) || Math.abs(n.y) > .9);   // never under a player or on a pole
             hole.n = n; hole.state = 'opening'; hole.t0 = t;
+            this.events.push({ type: 'hole', i: this.holes.indexOf(hole), state: 'opening', n, t0: t });
           }
           continue;
         }
+        const before = hole.state;
         if (hole.state === 'opening') { if (t - hole.t0 >= 1.5) { hole.state = 'open'; hole.until = t + 14 + Math.random() * 14; } }
         else if (hole.state === 'open') { if (t >= hole.until) { hole.state = 'closing'; hole.t0 = t; } }
         else if (t - hole.t0 >= .8) { hole.state = 'closed'; hole.nextAt = t + 2 + Math.random() * 5; }
+        if (hole.state !== before) this.events.push({ type: 'hole', i: this.holes.indexOf(hole), state: hole.state, t0: hole.t0 });
       }
     }
     updateStorms(t, dt) {
@@ -241,11 +244,14 @@
     }
     // --- jelly ---
     dropJellyPoints(points, hex, t) {
+      const added = [];
       for (let i = 0; i < points.length; i += 2) {
         if (this.jelly.length >= C.MAX_JELLY) this.jelly.shift();
         const off = tangentAt(points[i]).multiplyScalar(rnd(0, 2.2) / R);
-        this.jelly.push({ p: points[i].clone().add(off).normalize(), until: t + C.JELLY_LIFE, ph: Math.random() * 6.28, color: hex });
+        const j = { id: this.nextJelly++, p: points[i].clone().add(off).normalize(), until: t + C.JELLY_LIFE, ph: Math.random() * 6.28, color: hex };
+        this.jelly.push(j); added.push(j);
       }
+      if (added.length) this.events.push({ type: 'jellyAdd', items: added });
     }
     // --- bot AI ---
     steerToward(s, target) {
@@ -320,7 +326,7 @@
       this.events.length = 0;
       this.updatePortals(t);
       for (const sn of this.snakes) {
-        if (!sn.alive) { if (sn.isBot && t >= sn.respawnAt) sn.spawn(this.spawnAway(t, (this.humans()[0] || {}).p), t); continue; }
+        if (!sn.alive) { if (sn.isBot && t >= sn.respawnAt) { sn.spawn(this.spawnAway(t, (this.humans()[0] || {}).p), t); this.events.push({ type: 'spawn', id: sn.id }); } continue; }
         if (sn.ghost) continue;
         const cmd = sn.isBot ? this.botThink(sn, t) : sn.input;
         if (sn.move(dt, cmd.steer, cmd.boost, this)) this.events.push({ type: 'portal', id: sn.id });
@@ -336,11 +342,12 @@
             this.events.push({ type: 'eat', id: sn.id, boost: f.boost });
             const rs = f.boost ? C.BOOST_RESPAWN : C.FOOD_RESPAWN;
             f.p = randUnit(); f.respawnAt = t + rs[0] + Math.random() * (rs[1] - rs[0]);
+            this.events.push({ type: 'food', i: this.food.indexOf(f), p: f.p, respawnAt: f.respawnAt });
           }
         }
-        for (let i = this.jelly.length - 1; i >= 0; i--) if (sn.p.angleTo(this.jelly[i].p) * R < 3.6) { sn.targetLen += 2; this.jelly.splice(i, 1); this.events.push({ type: 'jelly', id: sn.id }); }
+        for (let i = this.jelly.length - 1; i >= 0; i--) if (sn.p.angleTo(this.jelly[i].p) * R < 3.6) { sn.targetLen += 2; const j = this.jelly.splice(i, 1)[0]; this.events.push({ type: 'jelly', id: sn.id, jid: j.id }); }
       }
-      for (let i = this.jelly.length - 1; i >= 0; i--) if (this.jelly[i].until < t) this.jelly.splice(i, 1);
+      for (let i = this.jelly.length - 1; i >= 0; i--) if (this.jelly[i].until < t) { const j = this.jelly.splice(i, 1)[0]; this.events.push({ type: 'jellyGone', jid: j.id }); }
       // collisions: head into any other body, head-to-head, sinkholes, storms
       const dead = [];
       for (const sn of this.snakes) {
@@ -358,8 +365,10 @@
           if (hit) { dead.push([sn, 'eaten', o]); break; }
         }
       }
+      const seen = new Set();
       for (const [sn, why, killer] of dead) {
-        if (!sn.alive) continue;
+        if (!sn.alive || seen.has(sn.id)) continue;
+        seen.add(sn.id);
         if (killer && killer.alive) killer.kills++;
         sn.die(t, this);
         this.events.push({ type: 'death', id: sn.id, why, killer: killer ? killer.id : null });
