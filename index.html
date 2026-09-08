@@ -185,22 +185,14 @@ if (ANALYTICS.key) {
   posthog.init(ANALYTICS.key, { api_host: ANALYTICS.host, defaults: '2026-05-30', person_profiles: 'identified_only', autocapture: false, capture_pageview: true });
 }
 </script>
+<script src="sim.js"></script>
 <script>
 // ============================================================
-// centi – single-player prototype with bots
+// centi — client. Renders the world that sim.js simulates, handles input, sound and UI.
+// Nothing in here decides who dies; it only shows it.
 // ============================================================
-const R = 340;                      // globe radius
-const SEG = 2.1;                    // arc length between body segments (~1000 segments to wrap once)
-const MAX_SEG = 1600;
-const FOOD_N = 250;                 // 240 ordinary pellets + 10 boost pellets
-const BOOST_N = 10;
-const FOOD_RESPAWN = [9, 18];       // seconds before an eaten pellet reappears somewhere else
-const BOOST_RESPAWN = [30, 50];
-const MAX_JELLY = 900;
-const JELLY_LIFE = 35;
-const BASE_SPEED = 48, TURN = 4.0;    // turn radius = speed / TURN ≈ 12 units
-const STEER_EASE = 7;                 // how quickly steering ramps in/out (lower = smoother, more flowing curves)
-const HIT_R = 3.1;                  // head-to-body distance that counts as a hit
+const { C, PRESETS, lookFrom, randUnit, tangentAt } = CentiSim;
+const R = C.R, SEG = C.SEG, MAX_SEG = C.MAX_SEG;
 const FOOD_COLORS = [0xd95f00, 0xc95400, 0xe86a00].map(c => new THREE.Color(c));   // dark orange, slight variation
 const BOOST_COLOR = new THREE.Color(0xcdf3ff);   // cold white-blue so boost pellets read apart from the orange food
 
@@ -211,25 +203,21 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 3));
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement);
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 
 scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x3a2a14, 0.55));
 const sun = new THREE.DirectionalLight(0xfff2dc, 1.15);
 const fill = new THREE.DirectionalLight(0x6f8fff, 0.35);
-scene.add(fill);
-scene.add(sun);
+scene.add(fill); scene.add(sun);
 
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpS = new THREE.Vector3(), tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
-function randUnit() { let v; do { v = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1); } while (v.lengthSq() > 1 || v.lengthSq() < .01); return v.normalize(); }
-function tangentAt(p) { const v = randUnit(); v.sub(tmpV.copy(p).multiplyScalar(v.dot(p))); return v.lengthSq() < .01 ? tangentAt(p) : v.normalize(); }
-const rnd = (a, b) => a + Math.random() * (b - a);
 const store = {
   get(k) { try { const v = localStorage.getItem('centi.' + k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem('centi.' + k, JSON.stringify(v)); } catch (e) {} },
 };
+
+// ---------- world ----------
+const world = new CentiSim.World();
 
 // stars
 {
@@ -238,7 +226,6 @@ const store = {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(arr, 3));
   scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xbfc7d6, size: 4, sizeAttenuation: true })));
 }
-
 // globe: smooth-shaded, blended sea / shallows / land / highland / ice with gentle relief, plus an atmosphere rim
 {
   const geo = new THREE.SphereGeometry(R, 400, 260);
@@ -249,7 +236,7 @@ const store = {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const n = Math.sin(x * .032) * Math.cos(z * .028) + Math.sin(y * .02 + x * .012) * .8 + Math.sin((x + z) * .07) * .35 + Math.cos(y * .05 - z * .018) * .4
-            + Math.sin(x * .11 + z * .09) * .12 + Math.cos(y * .13 - x * .07) * .1;      // finer detail octaves
+            + Math.sin(x * .11 + z * .09) * .12 + Math.cos(y * .13 - x * .07) * .1;
     if (n < -0.1) c.copy(sea).lerp(shallow, smooth(-0.9, -0.1, n));
     else if (n < 0.05) c.copy(shallow).lerp(sand, smooth(-0.1, 0.05, n));
     else if (n < 0.5) c.copy(sand).lerp(land, smooth(0.05, 0.3, n));
@@ -257,7 +244,6 @@ const store = {
     else c.copy(forest).lerp(high, smooth(0.95, 1.5, n));
     const polar = smooth(R * 0.9, R * 0.95, Math.abs(y)); c.lerp(ice, polar);
     col.push(c.r, c.g, c.b);
-    // relief: sea sits a little low, highlands a little high — kept small so bodies never sink into the ground
     const relief = n < -0.1 ? -0.9 : n < 0.05 ? -0.9 + smooth(-0.1, 0.05, n) * 0.9 : Math.min(0.5, (n - 0.05) * 0.5);
     v.set(x, y, z).normalize().multiplyScalar(R + relief);
     pos.setXYZ(i, v.x, v.y, v.z);
@@ -265,251 +251,159 @@ const store = {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.computeVertexNormals();
   scene.add(new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .9, metalness: 0 })));
-  const atmo = new THREE.Mesh(new THREE.SphereGeometry(R * 1.035, 96, 64), new THREE.ShaderMaterial({
+  scene.add(new THREE.Mesh(new THREE.SphereGeometry(R * 1.035, 96, 64), new THREE.ShaderMaterial({
     vertexShader: 'varying vec3 vN; varying vec3 vP; void main(){ vN = normalize(normalMatrix * normal); vP = (modelViewMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * vec4(vP, 1.0); }',
     fragmentShader: 'varying vec3 vN; varying vec3 vP; void main(){ float f = 1.0 - abs(dot(normalize(-vP), vN)); float a = pow(f, 4.0) * 0.85; gl_FragColor = vec4(0.45, 0.72, 1.0, a); }',
-    transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-  scene.add(atmo);
+    transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending })));
 }
 
-// ---------- pole portals ----------
-const portals = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, -1, 0)];
-const PORTAL_R = 12;
-const PORTAL_CYCLES = [{ open: 20, closed: 8, phase: 0 }, { open: 18, closed: 10, phase: 13 }];   // each pole runs its own clock
+// ---------- portal views ----------
 const PORTAL_GREEN = new THREE.Color(0x39ff6a), PORTAL_AMBER = new THREE.Color(0xffb02e), PORTAL_RED = new THREE.Color(0xff3b3b);
-const portalRings = [];
-portals.forEach(n => {
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(PORTAL_R, 1.4, 20, 96), new THREE.MeshStandardMaterial({ color: 0x39ff6a, emissive: 0x39ff6a, emissiveIntensity: 1.2, roughness: .3 }));
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(PORTAL_R - .8, 48), new THREE.MeshBasicMaterial({ color: 0x39ff6a, transparent: true, opacity: .22, side: THREE.DoubleSide }));
+const portalRings = C.PORTALS.map(n => {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(C.PORTAL_R, 1.4, 20, 96), new THREE.MeshStandardMaterial({ color: 0x39ff6a, emissive: 0x39ff6a, emissiveIntensity: 1.2, roughness: .3 }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(C.PORTAL_R - .8, 48), new THREE.MeshBasicMaterial({ color: 0x39ff6a, transparent: true, opacity: .22, side: THREE.DoubleSide }));
   const grp = new THREE.Group(); grp.add(ring); grp.add(disc);
-  grp.position.copy(n).multiplyScalar(R + 1.5);
-  grp.lookAt(n.clone().multiplyScalar(R * 2));
-  scene.add(grp); portalRings.push(grp);
+  grp.position.copy(n).multiplyScalar(R + 1.5); grp.lookAt(n.clone().multiplyScalar(R * 2));
+  scene.add(grp); return grp;
 });
-const portalState = [{ open: true, left: 20 }, { open: true, left: 18 }];
+function drawPortals(t, dt) {
+  portalRings.forEach((g, i) => {
+    const st = world.portalState[i], left = st.left;
+    const pc = !st.open || left < 1 ? PORTAL_RED : left < 5 ? PORTAL_AMBER : PORTAL_GREEN;
+    g.visible = st.open;
+    g.rotation.z += dt * (i ? -1 : 1) * (left < 5 ? 3 : .8);
+    g.children[0].material.color.copy(pc); g.children[0].material.emissive.copy(pc); g.children[1].material.color.copy(pc);
+    g.children[0].material.emissiveIntensity = left < 1 ? 1.5 + Math.sin(t * 40) * .8 : 1.2 + Math.sin(t * 4) * .3;
+  });
+}
 
-// ---------- sinkholes ----------
-const HOLE_N = 10, HOLE_R = 9;
-const HOLE_PULL_R = HOLE_R * 2.4, HOLE_PULL_MAX = BASE_SPEED * 1.1;   // sinkholes drag too, over a smaller radius
-const holes = [];
-for (let i = 0; i < HOLE_N; i++) {
+// ---------- sinkhole views ----------
+const holeViews = world.holes.map(() => {
   const grp = new THREE.Group();
-  // The shaft sits below the surface, so it's drawn without depth testing (after the globe) and only when it faces the camera.
-  const DEPTH = 16;
-  const shaftGeo = new THREE.CylinderGeometry(HOLE_R, HOLE_R * .35, DEPTH, 40, 6, true);
-  {
-    const pos = shaftGeo.attributes.position, col = [], top = new THREE.Color(0x4a3524), bot = new THREE.Color(0x030202), c = new THREE.Color();
+  const DEPTH = 16;   // the shaft is below the surface: drawn without depth testing, after the globe, only when facing the camera
+  const shaftGeo = new THREE.CylinderGeometry(C.HOLE_R, C.HOLE_R * .35, DEPTH, 40, 6, true);
+  { const pos = shaftGeo.attributes.position, col = [], top = new THREE.Color(0x4a3524), bot = new THREE.Color(0x030202), c = new THREE.Color();
     for (let k = 0; k < pos.count; k++) { const y = (pos.getY(k) + DEPTH / 2) / DEPTH; c.copy(bot).lerp(top, Math.pow(y, 1.6)); col.push(c.r, c.g, c.b); }
-    shaftGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  }
+    shaftGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); }
   const shaft = new THREE.Mesh(shaftGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, depthTest: false }));
   shaft.rotation.x = Math.PI / 2; shaft.position.z = -DEPTH / 2; shaft.renderOrder = 5; grp.add(shaft);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(HOLE_R * .35, 32), new THREE.MeshBasicMaterial({ color: 0x000000, depthTest: false }));
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(C.HOLE_R * .35, 32), new THREE.MeshBasicMaterial({ color: 0x000000, depthTest: false }));
   floor.position.z = -DEPTH; floor.renderOrder = 4; grp.add(floor);
-  const swirl = new THREE.Mesh(new THREE.RingGeometry(HOLE_R * .4, HOLE_R * .9, 40, 1, 0, Math.PI * 1.3), new THREE.MeshBasicMaterial({ color: 0x5a4130, transparent: true, opacity: .55, side: THREE.DoubleSide, depthTest: false }));
+  const swirl = new THREE.Mesh(new THREE.RingGeometry(C.HOLE_R * .4, C.HOLE_R * .9, 40, 1, 0, Math.PI * 1.3), new THREE.MeshBasicMaterial({ color: 0x5a4130, transparent: true, opacity: .55, side: THREE.DoubleSide, depthTest: false }));
   swirl.position.z = -DEPTH * .35; swirl.renderOrder = 6; grp.add(swirl);
-  const rim = new THREE.Mesh(new THREE.TorusGeometry(HOLE_R, 1.3, 10, 64), new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 1 }));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(C.HOLE_R, 1.3, 10, 64), new THREE.MeshStandardMaterial({ color: 0x2b1d14, roughness: 1 }));
   rim.renderOrder = 7; grp.add(rim);
-  const pullRing = new THREE.Mesh(new THREE.RingGeometry(HOLE_PULL_R * .9, HOLE_PULL_R, 56, 1, 0, Math.PI * 1.5), new THREE.MeshBasicMaterial({ color: 0x8a7150, transparent: true, opacity: .22, side: THREE.DoubleSide, depthWrite: false }));
+  const pullRing = new THREE.Mesh(new THREE.RingGeometry(C.HOLE_PULL_R * .9, C.HOLE_PULL_R, 56, 1, 0, Math.PI * 1.5), new THREE.MeshBasicMaterial({ color: 0x8a7150, transparent: true, opacity: .22, side: THREE.DoubleSide, depthWrite: false }));
   pullRing.position.z = .8; grp.add(pullRing);
   grp.visible = false; scene.add(grp);
-  holes.push({ n: new THREE.Vector3(0, 1, 0), state: 'closed', t0: 0, until: 0, nextAt: 4 + i * 2.5 + Math.random() * 5, grp, swirl, pullRing });
+  return { grp, swirl, pullRing };
+});
+function drawHoles(t, dt) {
+  const horizon = R / camera.position.length() + .02;      // a hole past the horizon must not draw through the globe
+  const camDir = tmpV2.copy(camera.position).normalize();
+  world.holes.forEach((hole, i) => {
+    const v = holeViews[i];
+    if (hole.state === 'closed') { v.grp.visible = false; return; }
+    const k = hole.state === 'opening' ? Math.min(1, (t - hole.t0) / 1.5) : hole.state === 'closing' ? Math.max(.001, 1 - (t - hole.t0) / .8) : 1;
+    v.grp.position.copy(hole.n).multiplyScalar(R + .6); v.grp.lookAt(tmpV.copy(hole.n).multiplyScalar(R * 2));
+    v.grp.scale.setScalar(k);
+    v.swirl.rotation.z -= dt * 1.6; v.pullRing.rotation.z -= dt * .9;
+    v.grp.visible = hole.n.dot(camDir) > horizon;
+  });
 }
-function updateHoles(t, dt, avoid) {
-  for (const hole of holes) {
-    if (hole.state === 'closed') {
-      if (t >= hole.nextAt) {
-        let n; do { n = randUnit(); } while (n.angleTo(avoid) * R < 45 || Math.abs(n.y) > .9);   // never under the player or on a pole
-        hole.n = n; hole.grp.position.copy(n).multiplyScalar(R + .6); hole.grp.lookAt(n.clone().multiplyScalar(R * 2));
-        hole.grp.scale.setScalar(.001); hole.grp.visible = true; hole.state = 'opening'; hole.t0 = t;
-      }
-      continue;
-    }
-    hole.swirl.rotation.z -= dt * 1.6; hole.pullRing.rotation.z -= dt * .9;
-    if (hole.state === 'opening') {
-      const k = Math.min(1, (t - hole.t0) / 1.5); hole.grp.scale.setScalar(k);
-      if (k >= 1) { hole.state = 'open'; hole.until = t + 14 + Math.random() * 14; }
-    } else if (hole.state === 'open') {
-      if (t >= hole.until) { hole.state = 'closing'; hole.t0 = t; }
-    } else {
-      const k = Math.max(0, 1 - (t - hole.t0) / .8); hole.grp.scale.setScalar(Math.max(k, .001));
-      if (k <= 0) { hole.state = 'closed'; hole.grp.visible = false; hole.nextAt = t + 2 + Math.random() * 5; }
-    }
-  }
-}
-const inHole = p => holes.some(hole => hole.state === 'open' && p.angleTo(hole.n) * R < HOLE_R * .9);
 
-// ---------- storms: two tornadoes that wander the globe and drag anything nearby into the funnel ----------
-const STORM_N = 2, STORM_R = 22, STORM_SPEED = BASE_SPEED / 8, STORM_H = 44;
-const PULL_R = STORM_R * 3.6;              // suction reaches this far out
-const PULL_MAX = BASE_SPEED * 1.25;        // at the funnel edge suction beats normal speed; only boosting (1.9x) wins
-const storms = [];
-function makeStorm() {
-  const st = { p: randUnit(), h: null, grp: new THREE.Group(), rings: [], debris: null, seed: Math.random() * 100 };
-  st.h = tangentAt(st.p);
-  const g = st.grp;
-  const cone = new THREE.Mesh(new THREE.CylinderGeometry(STORM_R * 1.15, STORM_R * .22, STORM_H, 48, 1, true),
+// ---------- storm views ----------
+const stormViews = world.storms.map(() => {
+  const g = new THREE.Group(), v = { grp: g, rings: [] };
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(C.STORM_R * 1.15, C.STORM_R * .22, C.STORM_H, 48, 1, true),
     new THREE.MeshStandardMaterial({ color: 0xc9cdd6, transparent: true, opacity: .3, side: THREE.DoubleSide, roughness: 1, depthWrite: false }));
-  cone.rotation.x = Math.PI / 2; cone.position.z = STORM_H / 2; g.add(cone);
+  cone.rotation.x = Math.PI / 2; cone.position.z = C.STORM_H / 2; g.add(cone);
   for (let k = 0; k < 8; k++) {
-    const f = k / 7, r = STORM_R * (.25 + f * .95);
+    const f = k / 7, r = C.STORM_R * (.25 + f * .95);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(r, .6 + f * .8, 8, 56), new THREE.MeshBasicMaterial({ color: 0xe6e9ef, transparent: true, opacity: .55 - f * .3, depthWrite: false }));
-    ring.position.z = 1 + f * (STORM_H - 2); ring.rotation.x = (Math.random() - .5) * .25; g.add(ring); st.rings.push(ring);
+    ring.position.z = 1 + f * (C.STORM_H - 2); ring.rotation.x = (Math.random() - .5) * .25; g.add(ring); v.rings.push(ring);
   }
-  const base = new THREE.Mesh(new THREE.RingGeometry(STORM_R * .2, STORM_R * 1.05, 56), new THREE.MeshBasicMaterial({ color: 0x6b5a48, transparent: true, opacity: .35, side: THREE.DoubleSide, depthWrite: false }));
-  base.position.z = .4; g.add(base); st.base = base;
-  // dust ring marks the edge of the suction zone
-  const pull = new THREE.Mesh(new THREE.RingGeometry(PULL_R * .93, PULL_R, 72, 1, 0, Math.PI * 1.6), new THREE.MeshBasicMaterial({ color: 0xbfae94, transparent: true, opacity: .18, side: THREE.DoubleSide, depthWrite: false }));
-  pull.position.z = .6; g.add(pull); st.pull = pull;
-  const n = 160, arr = new Float32Array(n * 3), seeds = [];
-  for (let k = 0; k < n; k++) seeds.push({ a: Math.random() * 6.28, z: Math.random(), r: .4 + Math.random() * .8, w: 2 + Math.random() * 3 });
+  v.base = new THREE.Mesh(new THREE.RingGeometry(C.STORM_R * .2, C.STORM_R * 1.05, 56), new THREE.MeshBasicMaterial({ color: 0x6b5a48, transparent: true, opacity: .35, side: THREE.DoubleSide, depthWrite: false }));
+  v.base.position.z = .4; g.add(v.base);
+  v.pull = new THREE.Mesh(new THREE.RingGeometry(C.PULL_R * .93, C.PULL_R, 72, 1, 0, Math.PI * 1.6), new THREE.MeshBasicMaterial({ color: 0xbfae94, transparent: true, opacity: .18, side: THREE.DoubleSide, depthWrite: false }));
+  v.pull.position.z = .6; g.add(v.pull);
+  const n = 160, arr = new Float32Array(n * 3); v.seeds = [];
+  for (let k = 0; k < n; k++) v.seeds.push({ a: Math.random() * 6.28, z: Math.random(), r: .4 + Math.random() * .8, w: 2 + Math.random() * 3 });
   const dg = new THREE.BufferGeometry(); dg.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-  st.debris = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0x3a2e24, size: 2, sizeAttenuation: true })); st.seeds = seeds;
-  g.add(st.debris);
-  scene.add(g);
-  return st;
-}
-for (let i = 0; i < STORM_N; i++) storms.push(makeStorm());
-function updateStorms(t, dt) {
-  for (const st of storms) {
-    // wander: slow drift of heading; steer off the poles so it never parks on a portal, and off the other storm
-    let turn = Math.sin(t * .31 + st.seed) * .35 + Math.sin(t * .11 + st.seed * 2) * .25;
-    if (Math.abs(st.p.y) > .72) turn += (st.h.y * st.p.y > 0 ? 1 : -1) * .7;
-    for (const o of storms) if (o !== st && o.p.angleTo(st.p) * R < PULL_R * 2.2) turn += .5;
-    st.h.applyAxisAngle(st.p, turn * dt);
-    axis.crossVectors(st.p, st.h).normalize();
-    st.p.applyAxisAngle(axis, STORM_SPEED * dt / R);
-    st.h.applyAxisAngle(axis, STORM_SPEED * dt / R);
-    st.p.normalize(); st.h.sub(tmpV.copy(st.p).multiplyScalar(st.h.dot(st.p))).normalize();
-    st.grp.position.copy(st.p).multiplyScalar(R + .4);
-    st.grp.lookAt(tmpV.copy(st.p).multiplyScalar(R * 2));
-    st.base.rotation.z -= dt * 2.5; st.pull.rotation.z -= dt * .6;
-    st.rings.forEach((r, k) => { r.rotation.z += dt * (5 - k * .5); r.position.x = Math.sin(t * 2.2 + k) * 1.2; r.position.y = Math.cos(t * 1.9 + k) * 1.2; });
-    const arr = st.debris.geometry.attributes.position.array;
-    st.seeds.forEach((sd, k) => {
+  v.debris = new THREE.Points(dg, new THREE.PointsMaterial({ color: 0x3a2e24, size: 2, sizeAttenuation: true })); g.add(v.debris);
+  scene.add(g); return v;
+});
+function drawStorms(t, dt) {
+  world.storms.forEach((st, i) => {
+    const v = stormViews[i];
+    v.grp.position.copy(st.p).multiplyScalar(R + .4); v.grp.lookAt(tmpV.copy(st.p).multiplyScalar(R * 2));
+    v.base.rotation.z -= dt * 2.5; v.pull.rotation.z -= dt * .6;
+    v.rings.forEach((r, k) => { r.rotation.z += dt * (5 - k * .5); r.position.x = Math.sin(t * 2.2 + k) * 1.2; r.position.y = Math.cos(t * 1.9 + k) * 1.2; });
+    const arr = v.debris.geometry.attributes.position.array;
+    v.seeds.forEach((sd, k) => {
       sd.a += dt * sd.w; sd.z = (sd.z + dt * .25) % 1;
-      const rr = STORM_R * (.25 + sd.z * .95) * sd.r;
-      arr[k * 3] = Math.cos(sd.a) * rr; arr[k * 3 + 1] = Math.sin(sd.a) * rr; arr[k * 3 + 2] = 1 + sd.z * (STORM_H - 2);
+      const rr = C.STORM_R * (.25 + sd.z * .95) * sd.r;
+      arr[k * 3] = Math.cos(sd.a) * rr; arr[k * 3 + 1] = Math.sin(sd.a) * rr; arr[k * 3 + 2] = 1 + sd.z * (C.STORM_H - 2);
     });
-    st.debris.geometry.attributes.position.needsUpdate = true;
-  }
-}
-// suction: drags a head sideways toward the funnel, strongest at the eye; returns the nearest storm in range (or null)
-const pullDir = new THREE.Vector3(), pullAxis = new THREE.Vector3();
-function pullToward(p, centre, dist, innerR, outerR, maxPull, dt) {
-  const k = Math.max(0, 1 - (dist - innerR) / (outerR - innerR));   // 0 at the outer ring, 1 at the hazard edge
-  if (k <= 0) return 0;
-  pullDir.copy(centre).sub(tmpV.copy(p).multiplyScalar(centre.dot(p)));
-  if (pullDir.lengthSq() < 1e-8) return k;
-  pullDir.normalize();
-  pullAxis.crossVectors(p, pullDir).normalize();
-  p.applyAxisAngle(pullAxis, maxPull * Math.pow(k, 1.4) * dt / R);
-  return k;
-}
-function applyPull(p, dt) {
-  let k = 0, hit = null;
-  for (const st of storms) {
-    const d = p.angleTo(st.p) * R;
-    if (d < PULL_R) { const kk = pullToward(p, st.p, d, STORM_R * .8, PULL_R, PULL_MAX, dt); if (kk > k) { k = kk; hit = st; } }
-  }
-  for (const hole of holes) {
-    if (hole.state !== 'open') continue;
-    const d = p.angleTo(hole.n) * R;
-    if (d < HOLE_PULL_R) { const kk = pullToward(p, hole.n, d, HOLE_R * .9, HOLE_PULL_R, HOLE_PULL_MAX, dt); if (kk > k) { k = kk; hit = hole; } }
-  }
-  applyPull.k = k;
-  return hit;
-}
-function resetStorms(t, from) {
-  for (const st of storms) { let pos; do { pos = randUnit(); } while (pos.angleTo(from) * R < 170 || storms.some(o => o !== st && o.p.angleTo(pos) * R < PULL_R * 2.5)); st.p = pos; st.h = tangentAt(pos); }
-}
-const inStorm = p => storms.some(st => p.angleTo(st.p) * R < STORM_R * .8);
-function resetHoles(t) { holes.forEach((hole, i) => { hole.state = 'closed'; hole.grp.visible = false; hole.nextAt = t + 4 + i * 2.5 + Math.random() * 5; }); }
-
-// ---------- food ----------
-const food = [];
-const foodMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.7, 3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xb84a00, emissiveIntensity: .45, roughness: .5 }), FOOD_N);
-scene.add(foodMesh);
-for (let i = 0; i < FOOD_N; i++) {            // scattered at random, so it clumps and thins out naturally
-  const isBoost = i < BOOST_N;
-  food.push({ p: randUnit(), ph: Math.random() * 6.28, respawnAt: 0, boost: isBoost });
-  foodMesh.setColorAt(i, isBoost ? BOOST_COLOR : FOOD_COLORS[Math.floor(Math.random() * FOOD_COLORS.length)]);
-}
-foodMesh.instanceColor.needsUpdate = true;
-function placeFood(i, t) {
-  const f = food[i];
-  if (f.respawnAt > t) { tmpM.makeScale(0, 0, 0); foodMesh.setMatrixAt(i, tmpM); return; }
-  const s = f.boost ? 2.3 + Math.sin(t * 6 + f.ph) * .5 : 1 + Math.sin(t * 3 + f.ph) * .18;
-  tmpV.copy(f.p).multiplyScalar(R + 1.6 * s);
-  tmpM.compose(tmpV, tmpQ, tmpS.set(s, s, s));
-  foodMesh.setMatrixAt(i, tmpM);
+    v.debris.geometry.attributes.position.needsUpdate = true;
+  });
 }
 
-// jelly: dropped by the dead, eaten by anyone
-const jelly = [];
-const jellyMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.5, 3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: .45, roughness: .2, transparent: true, opacity: .92 }), MAX_JELLY);
-for (let i = 0; i < MAX_JELLY; i++) jellyMesh.setColorAt(i, BOOST_COLOR);   // create the colour buffer before first render or the shader ignores it
-jellyMesh.instanceColor.needsUpdate = true;
-scene.add(jellyMesh);
-function dropJellyPoints(points, hex, t) {
-  const col = new THREE.Color(hex);
-  for (let i = 0; i < points.length; i += 2) {
-    if (jelly.length >= MAX_JELLY) jelly.shift();
-    const off = tangentAt(points[i]).multiplyScalar(rnd(0, 2.2) / R);
-    jelly.push({ p: points[i].clone().add(off).normalize(), until: t + JELLY_LIFE, ph: Math.random() * 6.28, col });
-  }
+// ---------- food & jelly views ----------
+const foodMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.7, 3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xb84a00, emissiveIntensity: .45, roughness: .5 }), C.FOOD_N);
+world.food.forEach((f, i) => foodMesh.setColorAt(i, f.boost ? BOOST_COLOR : FOOD_COLORS[f.colorIdx]));
+foodMesh.instanceColor.needsUpdate = true; scene.add(foodMesh);
+function drawFood(t) {
+  world.food.forEach((f, i) => {
+    if (f.respawnAt > t) { tmpM.makeScale(0, 0, 0); foodMesh.setMatrixAt(i, tmpM); return; }
+    const s = f.boost ? 2.3 + Math.sin(t * 6 + f.ph) * .5 : 1 + Math.sin(t * 3 + f.ph) * .18;
+    tmpV.copy(f.p).multiplyScalar(R + 1.6 * s);
+    tmpM.compose(tmpV, tmpQ, tmpS.set(s, s, s)); foodMesh.setMatrixAt(i, tmpM);
+  });
+  foodMesh.instanceMatrix.needsUpdate = true;
 }
-function dropJelly(snake, t) { dropJellyPoints(snake.trail, snake.look.a, t); }
+const jellyMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.5, 3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: .45, roughness: .2, transparent: true, opacity: .92 }), C.MAX_JELLY);
+for (let i = 0; i < C.MAX_JELLY; i++) jellyMesh.setColorAt(i, BOOST_COLOR);   // create the colour buffer before first render or the shader ignores it
+jellyMesh.instanceColor.needsUpdate = true; scene.add(jellyMesh);
+const colorCache = new Map(); const colorOf = hex => { let c = colorCache.get(hex); if (!c) { c = new THREE.Color(hex); colorCache.set(hex, c); } return c; };
 function drawJelly(t) {
-  for (let i = jelly.length - 1; i >= 0; i--) if (jelly[i].until < t) jelly.splice(i, 1);
-  for (let i = 0; i < jelly.length; i++) {
-    const j = jelly[i], s = 1 + Math.sin(t * 4 + j.ph) * .15;
+  const J = world.jelly;
+  for (let i = 0; i < J.length; i++) {
+    const j = J[i], s = 1 + Math.sin(t * 4 + j.ph) * .15;
     tmpV.copy(j.p).multiplyScalar(R + 1.4 * s);
     tmpM.compose(tmpV, tmpQ, tmpS.set(s, s, s));
-    jellyMesh.setMatrixAt(i, tmpM); jellyMesh.setColorAt(i, j.col);
+    jellyMesh.setMatrixAt(i, tmpM); jellyMesh.setColorAt(i, colorOf(j.color));
   }
-  jellyMesh.count = jelly.length;
-  jellyMesh.instanceMatrix.needsUpdate = true;
-  if (jellyMesh.instanceColor) jellyMesh.instanceColor.needsUpdate = true;
+  jellyMesh.count = J.length; jellyMesh.instanceMatrix.needsUpdate = true; jellyMesh.instanceColor.needsUpdate = true;
 }
 
-// ---------- centipedes ----------
-const segGeo = new THREE.SphereGeometry(1, 28, 20);
-const legGeo = new THREE.CylinderGeometry(1, .7, 1, 10);
-const headGeo = new THREE.SphereGeometry(2.1, 36, 26);
+// ---------- snake views ----------
+const segGeo = new THREE.SphereGeometry(1, 28, 20), legGeo = new THREE.CylinderGeometry(1, .7, 1, 10), headGeo = new THREE.SphereGeometry(2.1, 36, 26);
 const eyeGeo = new THREE.SphereGeometry(.48, 10, 8), eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
 const antGeo = new THREE.CylinderGeometry(.09, .16, 4, 5), antMat = new THREE.MeshStandardMaterial({ color: 0x3a1f12 });
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const colA = new THREE.Color(), colB = new THREE.Color(), colMix = new THREE.Color();
-const axis = new THREE.Vector3(), dirSide = new THREE.Vector3(), fwd = new THREE.Vector3(), base = new THREE.Vector3(), tip = new THREE.Vector3();
+const dirSide = new THREE.Vector3(), fwd = new THREE.Vector3(), base = new THREE.Vector3(), tip = new THREE.Vector3();
 const legQ = new THREE.Quaternion(), legDir = new THREE.Vector3(), legMid = new THREE.Vector3();
 const ptA = new THREE.Vector3(), ptB = new THREE.Vector3(), pt = new THREE.Vector3();
-
-class Snake {
-  constructor(name, look, opts = {}) {
-    this.name = name; this.look = look; this.isBot = !!opts.isBot;
-    this.speedMul = opts.speed || 1; this.turnMul = opts.turn || 1; this.ai = opts.ai || null; this.huntRange = opts.hunt;
-    this.p = new THREE.Vector3(); this.h = new THREE.Vector3();
-    this.trail = []; this.targetLen = 10; this.curLen = 10; this.steer = 0; this.boost = false;
-    this.alive = false; this.respawnAt = 0; this.portalCooldown = 0; this.kills = 0;
+class SnakeView {
+  constructor(snake) {
+    this.snake = snake;
     this.bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .55 });
     this.body = new THREE.InstancedMesh(segGeo, this.bodyMat, MAX_SEG);
     this.legMat = new THREE.MeshStandardMaterial({ color: 0x0e0c0c, roughness: .8 });
     this.legs = new THREE.InstancedMesh(legGeo, this.legMat, MAX_SEG * 2);
     this.headMat = new THREE.MeshStandardMaterial({ color: 0xe8632f, roughness: .5 });
-    this.head = new THREE.Group();
-    this.head.add(new THREE.Mesh(headGeo, this.headMat));
+    this.head = new THREE.Group(); this.head.add(new THREE.Mesh(headGeo, this.headMat));
     [-1, 1].forEach(s => {
       const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.set(s * .95, .85, 1.55); this.head.add(eye);
       const ant = new THREE.Mesh(antGeo, antMat); ant.position.set(s * .8, 1.5, 1.4); ant.rotation.set(-0.9, 0, s * 0.6); this.head.add(ant);
     });
     scene.add(this.body); scene.add(this.legs); scene.add(this.head);
-    this.setVisible(false);
     this.applyLook();
   }
-  setVisible(v) { this.body.visible = this.legs.visible = this.head.visible = v; }
   applyLook() {
-    const L = this.look;
+    const L = this.snake.look;
     this.headMat.color.set(L.head); this.legMat.color.set(L.legs);
     colA.set(L.a); colB.set(L.b);
     for (let i = 0; i < MAX_SEG; i++) {
@@ -520,73 +414,12 @@ class Snake {
     }
     this.body.instanceColor.needsUpdate = true;
   }
-  spawn(pos, t) {
-    this.p.copy(pos); this.h.copy(tangentAt(this.p));
-    this.trail.length = 0; this.trail.push(this.p.clone());
-    this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false;
-    this.alive = true; this.portalCooldown = 0; this.spawnedAt = t; this.cutPoint = null; this.pendingCut = false; this.cutPortal = -1;
-    this.setVisible(true);
-  }
-  // the portal closed while the tail was still on the far side: everything behind the cut is lost as jelly
-  sever(t) {
-    if (!this.cutPoint) return;
-    const idx = this.trail.indexOf(this.cutPoint);
-    this.cutPoint = null;
-    if (idx <= 0) return;
-    dropJellyPoints(this.trail.slice(0, idx), this.look.a, t);
-    this.trail.splice(0, idx);
-    const remaining = this.trail.length - 1;
-    this.targetLen = Math.max(10, remaining); this.curLen = Math.max(10, Math.min(this.curLen, remaining));
-    feedMsg((this === player ? 'You' : this.name) + ' lost ' + idx + ' segments to a portal');
-    if (this === player && !attract) { Sound.snip(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
-  }
-  die(t, reason) { this.alive = false; dropJelly(this, t); this.setVisible(false); this.respawnAt = t + 4 + Math.random() * 3; this.deathReason = reason; }
-  move(dt, steerIn, boostIn) {
-    this.steer += (steerIn - this.steer) * Math.min(1, dt * STEER_EASE);
-    const canBoost = boostIn && this.targetLen > 10;
-    this.boost = canBoost;
-    const speed = BASE_SPEED * this.speedMul * (canBoost ? 1.9 : 1);
-    if (canBoost) this.targetLen -= dt * 2.2;
-    const p = this.p, h = this.h;
-    axis.crossVectors(p, h).normalize();
-    p.applyAxisAngle(axis, speed * dt / R);
-    h.applyAxisAngle(axis, speed * dt / R);
-    h.applyAxisAngle(p, -this.steer * TURN * this.turnMul * dt);
-    p.normalize();
-    h.sub(tmpV.copy(p).multiplyScalar(h.dot(p))).normalize();
-    this.inPull = !!applyPull(p, dt); this.pullK = applyPull.k;
-    // portal
-    this.portalCooldown -= dt;
-    let jumped = false;
-    if (this.portalCooldown <= 0) {
-      portals.forEach((n, i) => {
-        if (!jumped && portalState[i].open && p.angleTo(n) * R < PORTAL_R) {
-          p.negate(); this.portalCooldown = 2.5; jumped = true;
-          this.pendingCut = true; this.cutPortal = i;         // body is still streaming through portal i
-        }
-      });
-    }
-    this.curLen += (this.targetLen - this.curLen) * Math.min(1, dt * 3);
-    if (this.curLen < 10) this.curLen = this.targetLen = 10;
-    this.record();
-    return jumped;
-  }
-  record() {
-    const p = this.p, trail = this.trail;
-    let last = trail[trail.length - 1];
-    let d = last.angleTo(p) * R;
-    if (d > SEG * 6) { const np = p.clone(); trail.push(np); if (this.pendingCut) { this.cutPoint = np; this.pendingCut = false; } }   // portal jump: leave a cut in the trail
-    else while (d >= SEG) {
-      const np = new THREE.Vector3().lerpVectors(last, p, SEG / d).normalize();
-      trail.push(np); last = np; d = last.angleTo(p) * R;
-    }
-    while (trail.length > Math.ceil(this.curLen) + 3) trail.shift();
-  }
-  girth() { return 1 + Math.min(1, (this.curLen - 10) / 250); }     // doubles in width by ~260 segments
   draw(t) {
-    if (!this.alive) return;
-    const p = this.p, h = this.h, trail = this.trail;
-    const girth = this.girth(), hs = .7 + .3 * girth;
+    const sn = this.snake, vis = sn.alive;
+    this.body.visible = this.legs.visible = this.head.visible = vis;
+    if (!vis) return;
+    const p = sn.p, h = sn.h, trail = sn.trail;
+    const girth = sn.girth(), hs = .7 + .3 * girth;
     this.head.scale.setScalar(hs);
     this.head.position.copy(p).multiplyScalar(R + 2 * hs);
     this.head.up.copy(p);
@@ -595,8 +428,8 @@ class Snake {
     const n = trail.length;
     const headDist = trail[n - 1].angleTo(p) * R;
     const u = Math.min(1, Math.max(0, (SEG - headDist) / SEG));
-    const count = Math.max(0, Math.min(Math.ceil(this.curLen), n - 2, MAX_SEG));
-    const frac = this.curLen - Math.floor(this.curLen);
+    const count = Math.max(0, Math.min(Math.ceil(sn.curLen), n - 2, MAX_SEG));
+    const frac = sn.curLen - Math.floor(sn.curLen);
     let li = 0;
     for (let i = 0; i < count; i++) {
       ptA.copy(trail[n - 1 - i]); ptB.copy(trail[n - 2 - i]);
@@ -605,21 +438,17 @@ class Snake {
       let scale = (1.7 - (i / Math.max(count, 1)) * .8) * girth;
       if (i === count - 1 && frac > 0) scale *= .35 + .65 * frac;
       tmpV.copy(pt).multiplyScalar(R + scale);
-      tmpM.compose(tmpV, tmpQ, tmpS.set(scale, scale, scale));
-      this.body.setMatrixAt(i, tmpM);
+      tmpM.compose(tmpV, tmpQ, tmpS.set(scale, scale, scale)); this.body.setMatrixAt(i, tmpM);
       if (cut) fwd.subVectors(i === 0 ? p : trail[n - i], ptA); else fwd.subVectors(ptA, ptB);
-      fwd.normalize();
-      dirSide.crossVectors(pt, fwd).normalize();
+      fwd.normalize(); dirSide.crossVectors(pt, fwd).normalize();
       const sway = Math.sin(t * 13 - i * .75);
       for (const sd of [-1, 1]) {
         base.copy(pt).multiplyScalar(R + scale * .55);
         tip.copy(pt).addScaledVector(dirSide, sd * (scale * 2.0) / R).addScaledVector(fwd, sd * sway * scale * .5 / R).normalize().multiplyScalar(R + .4);
         legDir.subVectors(tip, base); const len = legDir.length(); legDir.divideScalar(len);
-        legQ.setFromUnitVectors(Y_AXIS, legDir);
-        legMid.addVectors(base, tip).multiplyScalar(.5);
+        legQ.setFromUnitVectors(Y_AXIS, legDir); legMid.addVectors(base, tip).multiplyScalar(.5);
         const th = scale * .26;
-        tmpM.compose(legMid, legQ, tmpS.set(th, len, th));
-        this.legs.setMatrixAt(li++, tmpM);
+        tmpM.compose(legMid, legQ, tmpS.set(th, len, th)); this.legs.setMatrixAt(li++, tmpM);
       }
     }
     this.body.count = count; this.body.instanceMatrix.needsUpdate = true;
@@ -627,119 +456,12 @@ class Snake {
   }
 }
 
-// ---------- looks ----------
-const PRESETS = [
-  ['Ember',    '#d9542b', '#f2a33a', '#e8632f', '#0e0c0c', 'stripes'],
-  ['Jade',     '#2ea86a', '#7ee787', '#37c27a', '#0a1a10', 'solid'],
-  ['Midnight', '#24305e', '#5b6fd6', '#3a4bbf', '#000000', 'gradient'],
-  ['Coral',    '#ff6b8a', '#ffd1dc', '#ff4d73', '#3a1020', 'stripes'],
-  ['Wasp',     '#f5c518', '#1b1b1b', '#f5c518', '#000000', 'stripes'],
-  ['Glacier',  '#bfe9ff', '#ffffff', '#9fd8ff', '#223344', 'gradient'],
-  ['Magma',    '#ff3d00', '#3a0a00', '#ff5722', '#000000', 'gradient'],
-  ['Toxic',    '#9dff00', '#2b7a00', '#b6ff3a', '#0a1a00', 'stripes'],
-  ['Amethyst', '#8e5cff', '#d8c3ff', '#a06bff', '#201040', 'gradient'],
-  ['Rust',     '#8a4b2a', '#c98c5a', '#a0563a', '#2b1a10', 'solid'],
-  ['Ghost',    '#e8e8f0', '#b8b8c8', '#ffffff', '#555566', 'solid'],
-  ['Bumble',   '#ff9f1c', '#ffffff', '#ff9f1c', '#000000', 'stripes'],
-];
-const lookFrom = pr => ({ a: pr[1], b: pr[2], head: pr[3], legs: pr[4], pattern: pr[5] });
+// ---------- population ----------
 const look = Object.assign({ name: '' }, lookFrom(PRESETS[0]));
-
-const player = new Snake('You', look);
-const bots = [
-  new Snake('Intern',   lookFrom(PRESETS[1]),  { isBot: true, speed: .9,  turn: .9,  ai: 'easy' }),
-  new Snake('Gopher',   lookFrom(PRESETS[9]),  { isBot: true, speed: .88, turn: .9,  ai: 'easy' }),
-  new Snake('Rookie',   lookFrom(PRESETS[11]), { isBot: true, speed: .92, turn: .95, ai: 'easy' }),
-  new Snake('Henchman', lookFrom(PRESETS[8]),  { isBot: true, speed: .97, turn: 1,   ai: 'medium' }),
-  new Snake('Enforcer', lookFrom(PRESETS[2]),  { isBot: true, speed: .96, turn: 1.05, ai: 'medium' }),
-  new Snake('Bouncer',  lookFrom(PRESETS[4]),  { isBot: true, speed: .98, turn: 1,   ai: 'medium' }),
-  new Snake('Boss',     lookFrom(PRESETS[6]),  { isBot: true, speed: 1.02, turn: 1.12, ai: 'hard' }),
-  new Snake('Warden',   lookFrom(PRESETS[7]),  { isBot: true, speed: 1.0,  turn: 1.1,  ai: 'hard', hunt: 110 }),
-  new Snake('Assassin', lookFrom(PRESETS[10]), { isBot: true, speed: 1.03, turn: 1.15, ai: 'hard', hunt: 130 }),
-];
-const snakes = [player, ...bots];
-function spawnAway(t, from) { let pos; do { pos = randUnit(); } while (pos.angleTo(from) * R < 90 || inHole(pos) || inStorm(pos)); return pos; }
-
-// ---------- bot AI ----------
-const probe = new THREE.Vector3(), toT = new THREE.Vector3(), pax = new THREE.Vector3();
-const AI = {
-  easy:   { look: 14, react: .45, hunt: 0,   noise: .6, boostDist: 0 },
-  medium: { look: 22, react: .85, hunt: 0,   noise: .25, boostDist: 0 },
-  hard:   { look: 34, react: 1,   hunt: 150, noise: .08, boostDist: 45 },
-};
-// steer sign needed to turn toward a world point (positive = right)
-function steerToward(s, target) {
-  toT.copy(target).sub(tmpV2.copy(s.p).multiplyScalar(target.dot(s.p)));
-  if (toT.lengthSq() < 1e-8) return 0;
-  toT.normalize();
-  const side = pax.crossVectors(s.h, toT).dot(s.p);       // >0 target is to the left
-  const ang = Math.acos(Math.min(1, Math.max(-1, s.h.dot(toT))));
-  return -Math.sign(side) * Math.min(1, ang * 1.6);
-}
-function dangerAt(s, pt, dist) {           // smallest clearance around a probe point
-  let best = 99;
-  for (const o of snakes) {
-    if (!o.alive || o === s) continue;
-    const tr = o.trail;
-    const dh = pt.distanceTo(o.p) * R; if (dh < best) best = dh;
-    if (dh > tr.length * SEG + 12) continue;          // too far for any part of that body to matter
-    for (let i = 0; i < tr.length; i++) { const d = pt.distanceTo(tr[i]) * R; if (d < best) best = d; }
-  }
-  for (const hole of holes) if (hole.state !== 'closed') { const d = pt.distanceTo(hole.n) * R - HOLE_R; if (d < best) best = d; }
-  for (const st of storms) { const d = pt.distanceTo(st.p) * R - STORM_R * 1.3; if (d < best) best = d; }
-  return best;
-}
-function probeAt(s, angle, dist) {
-  tmpV.copy(s.h).applyAxisAngle(s.p, angle);
-  pax.crossVectors(s.p, tmpV).normalize();
-  return probe.copy(s.p).applyAxisAngle(pax, dist / R);
-}
-function botThink(s, t, dt) {
-  const cfg = AI[s.ai];
-  if (!s.aiState) s.aiState = { retarget: 0, target: null, seed: Math.random() * 100, steer: 0 };
-  const st = s.aiState;
-  // choose a target
-  if (t > st.retarget) {
-    st.retarget = t + rnd(1.2, 3);
-    st.target = null; let bestD = 1e9;
-    const huntR = s.huntRange || cfg.hunt;
-    const grace = player.curLen < 30 || t - runStart < 20;               // nobody hunts a newcomer
-    if (huntR && !grace && player.alive && !player.dying && player.p.angleTo(s.p) * R < huntR) {
-      st.target = tmpV.copy(player.p).addScaledVector(player.h, 16 / R).normalize().clone();   // cut across the player's path
-      st.hunting = true;
-    } else {
-      st.hunting = false;
-      for (const j of jelly) { const d = j.p.angleTo(s.p) * R; if (d < bestD) { bestD = d; st.target = j.p; } }
-      for (const f of food) { if (f.respawnAt > t) continue; const d = f.p.angleTo(s.p) * R * (f.boost ? .6 : 1); if (d < bestD) { bestD = d; st.target = f.p; } }
-    }
-  }
-  let want = st.target ? steerToward(s, st.target) : 0;
-  let fleeing = false;
-  for (const sm of storms) {
-    const d = sm.p.angleTo(s.p) * R;
-    if (d < PULL_R + 10) { want = steerToward(s, tmpV2.copy(s.p).multiplyScalar(2).sub(sm.p)); fleeing = true; break; }   // head straight away from the eye
-  }
-  if (!fleeing) for (const hole of holes) {
-    if (hole.state !== 'open') continue;
-    const d = hole.n.angleTo(s.p) * R;
-    if (d < HOLE_PULL_R + 6) { want = steerToward(s, tmpV2.copy(s.p).multiplyScalar(2).sub(hole.n)); fleeing = true; break; }
-  }
-  want += Math.sin(t * .9 + st.seed) * cfg.noise;
-  // obstacle avoidance: forward, left, right probes
-  if (Math.random() < cfg.react) {
-    const L = cfg.look + (s.boost ? 10 : 0);
-    const f0 = dangerAt(s, probeAt(s, 0, L), L);
-    if (f0 < 9) {
-      const fl = dangerAt(s, probeAt(s, .8, L * .8), L);
-      const fr = dangerAt(s, probeAt(s, -.8, L * .8), L);
-      want = fl > fr ? -1 : 1;
-      if (fl < 6 && fr < 6) want = fl > fr ? -1 : 1;    // both bad: pick the less bad and commit
-    }
-    st.steer = want;
-  }
-  const boost = (fleeing && s.targetLen > 11 && s.inPull) || (cfg.boostDist > 0 && st.hunting && player.alive && player.p.angleTo(s.p) * R < cfg.boostDist && s.targetLen > 16);
-  return { steer: Math.max(-1, Math.min(1, st.steer)), boost };
-}
+const player = world.addSnake({ name: 'You', look });
+const bots = world.addBots();
+const views = new Map(); for (const s of world.snakes) views.set(s.id, new SnakeView(s));
+const byId = id => world.snakes.find(s => s.id === id);
 
 // ---------- sound: everything is synthesised, no audio files ----------
 const Sound = (() => {
@@ -747,19 +469,17 @@ const Sound = (() => {
   const vol = { music: .55, sfx: .8 };
   const BPM = 128, BEAT = 60 / BPM, EIGHTH = BEAT / 2;
   const mid = m => 440 * Math.pow(2, (m - 69) / 12);
-  // Chord voicings: [oom bass, second bass, ...pah notes]
   const CH = { C: [48, 55, 60, 64, 67], F: [41, 48, 60, 65, 69], G: [43, 50, 59, 62, 67], Bb: [46, 53, 58, 62, 65] };
-  // Song A: 2/4 oompah in C.   Song B: 3/4 waltz in F.   Melodies in eighths, 0 = rest.
   const songA = { beats: 2, bars: ['C','F','C','G','C','F','G','C', 'C','F','C','G','C','F','G','C'],
     mel: [[72,76,79,76],[77,77,76,74],[76,79,76,72],[74,0,71,0],[72,76,79,84],[81,81,79,76],[77,79,81,79],[72,0,0,0],
           [79,79,76,79],[81,79,77,76],[79,81,79,76],[74,76,74,71],[72,76,79,84],[81,84,81,79],[77,79,81,83],[84,0,0,0]] };
-  const songA2 = { beats: 2, bars: songA.bars,     // same chords, cheekier tune
+  const songA2 = { beats: 2, bars: songA.bars,
     mel: [[79,0,76,0],[77,76,74,72],[76,79,84,79],[81,79,76,0],[72,0,76,0],[79,0,84,0],[83,81,79,77],[76,0,0,0],
           [84,83,81,79],[81,79,77,76],[79,77,76,74],[76,74,72,71],[72,76,79,84],[81,84,81,79],[77,79,81,83],[84,0,0,0]] };
   const songB = { beats: 3, bars: ['F','F','Bb','C','F','F','C','F', 'Bb','Bb','F','F','C','C','F','F'],
     mel: [[72,0,77,0,81,0],[79,0,77,0,81,0],[74,0,77,0,82,0],[79,0,76,0,79,0],[72,0,77,0,81,0],[84,0,81,0,77,0],[79,0,76,0,74,0],[77,0,0,0,0,0],
-          [74,77,82,0,81,0],[82,0,84,0,86,0],[84,0,81,0,77,0],[81,0,84,0,81,0],[79,0,83,0,86,0],[84,83,81,79,76,0],[77,79,81,0,84,0],[84,0,0,0,0,0]] };   // rising, bouncy — no moping
-  const setlist = [songA, songB, songA2, songB];       // cycles: oompah → waltz → oompah (variation) → waltz → ...
+          [74,77,82,0,81,0],[82,0,84,0,86,0],[84,0,81,0,77,0],[81,0,84,0,81,0],[79,0,83,0,86,0],[84,83,81,79,76,0],[77,79,81,0,84,0],[84,0,0,0,0,0]] };
+  const setlist = [songA, songB, songA2, songB];
   function noiseBuffer() {
     const b = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = b.getChannelData(0);
     let last = 0; for (let i = 0; i < d.length; i++) { const w = Math.random() * 2 - 1; last = (last + .02 * w) / 1.02; d[i] = last * 3.5; }
@@ -776,17 +496,16 @@ const Sound = (() => {
     env(g, t, opts.a || .01, opts.d || .05, peak, opts.sus !== undefined ? opts.sus : peak * .6, opts.r || .05, t + dur);
     o.start(t); o.stop(t + dur + .05);
   }
-  // --- band ---
-  let nextBar = 0, songIdx = 0, barIdx = 0, timer = null;
+  let nextBar = 0, songIdx = 0, barIdx = 0;
   function scheduleBar(t, song, i) {
     const ch = CH[song.bars[i]], nb = song.beats, last = i === song.bars.length - 1;
-    tone(musicBus, 'triangle', mid(ch[0]), t, BEAT * .45, .55, { lp: 500, a: .01, d: .1, sus: .25, r: .08 });                       // oom
-    if (nb === 2) tone(musicBus, 'triangle', mid(ch[1]), t + BEAT, BEAT * .45, .5, { lp: 500, a: .01, d: .1, sus: .22, r: .08 });    // (fifth, 2/4 only)
-    const pahs = nb === 2 ? [EIGHTH, BEAT + EIGHTH] : [BEAT, BEAT * 2];                                                              // pah-pah on the offbeats (2/4) or beats 2 & 3 (waltz)
+    tone(musicBus, 'triangle', mid(ch[0]), t, BEAT * .45, .55, { lp: 500, a: .01, d: .1, sus: .25, r: .08 });
+    if (nb === 2) tone(musicBus, 'triangle', mid(ch[1]), t + BEAT, BEAT * .45, .5, { lp: 500, a: .01, d: .1, sus: .22, r: .08 });
+    const pahs = nb === 2 ? [EIGHTH, BEAT + EIGHTH] : [BEAT, BEAT * 2];
     for (const off of pahs) for (const n of ch.slice(2)) tone(musicBus, 'sawtooth', mid(n), t + off, EIGHTH * .8, .09, { lp: 1800, a: .005, d: .06, sus: .04, r: .04 });
     song.mel[i].forEach((n, k) => { if (n) { const held = song.mel[i][k + 1] === 0 ? 2 : 1; tone(musicBus, 'square', mid(n), t + k * EIGHTH, EIGHTH * held * .92, .13, { lp: 2400, vib: 9, a: .015, d: .08, sus: .09, r: .05 }); } });
-    if (i % 8 === 7 && !last) tone(musicBus, 'sine', 900, t + EIGHTH, BEAT * 1.3, .16, { glide: 1900, a: .02, d: .3, sus: .12, r: .2 });   // slide whistle
-    if (last) tone(musicBus, 'sine', 700, t + BEAT * (nb - .8), BEAT * .7, .18, { glide: 240, a: .01, d: .2, sus: .1, r: .1 });        // comedy drop into the next song
+    if (i % 8 === 7 && !last) tone(musicBus, 'sine', 900, t + EIGHTH, BEAT * 1.3, .16, { glide: 1900, a: .02, d: .3, sus: .12, r: .2 });
+    if (last) tone(musicBus, 'sine', 700, t + BEAT * (nb - .8), BEAT * .7, .18, { glide: 240, a: .01, d: .2, sus: .1, r: .1 });
   }
   function pump() {
     while (nextBar < ctx.currentTime + .6) {
@@ -809,7 +528,7 @@ const Sound = (() => {
     boostNoise = ctx.createBufferSource(); boostNoise.buffer = nb; boostNoise.loop = true;
     const bf = ctx.createBiquadFilter(); bf.type = 'bandpass'; bf.frequency.value = 1600; bf.Q.value = .8;
     boostGain = ctx.createGain(); boostGain.gain.value = 0; boostNoise.connect(bf); bf.connect(boostGain); boostGain.connect(sfxBus); boostNoise.start();
-    nextBar = ctx.currentTime + .1; songIdx = 0; barIdx = 0; pump(); timer = setInterval(pump, 200);
+    nextBar = ctx.currentTime + .1; songIdx = 0; barIdx = 0; pump(); setInterval(pump, 200);
   }
   function applyVol() { if (!ctx) return; musicBus.gain.value = muted ? 0 : vol.music * vol.music; sfxBus.gain.value = muted ? 0 : vol.sfx; }
   const now = () => ctx.currentTime;
@@ -836,17 +555,13 @@ muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
 // ---------- customiser ----------
 const cA = document.getElementById('cA'), cB = document.getElementById('cB'), cH = document.getElementById('cH'), cL = document.getElementById('cL');
 const presetsEl = document.getElementById('presets'), patternEl = document.getElementById('pattern'), nameEl = document.getElementById('name');
-function applyLook() { player.applyLook(); document.getElementById('sub').textContent = look.name ? look.name : 'segments'; }
+function applyLook() { views.get(player.id).applyLook(); document.getElementById('sub').textContent = look.name ? look.name : 'segments'; }
 function syncInputs() { cA.value = look.a; cB.value = look.b; cH.value = look.head; cL.value = look.legs;
   [...patternEl.children].forEach(b => b.classList.toggle('sel', b.dataset.p === look.pattern)); }
 PRESETS.forEach(pr => {
   const b = document.createElement('button');
   b.innerHTML = '<i style="background:linear-gradient(135deg,' + pr[1] + ' 50%,' + pr[2] + ' 50%)"></i>' + pr[0];
-  b.addEventListener('click', () => {
-    Object.assign(look, lookFrom(pr));
-    [...presetsEl.children].forEach(x => x.classList.remove('sel')); b.classList.add('sel');
-    syncInputs(); applyLook();
-  });
+  b.addEventListener('click', () => { Object.assign(look, lookFrom(pr)); [...presetsEl.children].forEach(x => x.classList.remove('sel')); b.classList.add('sel'); syncInputs(); applyLook(); });
   presetsEl.appendChild(b);
 });
 presetsEl.children[0].classList.add('sel');
@@ -860,38 +575,62 @@ nameEl.addEventListener('input', () => { look.name = nameEl.value.trim(); player
 { const saved = store.get('look'); if (saved) { Object.assign(look, saved); player.name = look.name || 'You'; nameEl.value = look.name || ''; presetsEl.children[0].classList.remove('sel'); const m = PRESETS.findIndex(pr => pr[1] === look.a && pr[2] === look.b && pr[3] === look.head && pr[4] === look.legs && pr[5] === look.pattern); if (m >= 0) presetsEl.children[m].classList.add('sel'); } }
 syncInputs(); applyLook();
 
-// ---------- game state ----------
+// ---------- game state / UI ----------
 let paused = true, gameOverFlag = false, planetView = true, snapCam = true, cinematic = false, killcam = null, attract = false;
 const feedEl = document.getElementById('feed'), feed = [];
 function feedMsg(text) { feed.push({ text, until: performance.now() / 1000 + 8 }); if (feed.length > 5) feed.shift(); renderFeed(); }
 function renderFeed() { feedEl.innerHTML = feed.map(f => '<div>' + f.text + '</div>').join(''); }
-const who = sn => sn === player ? '<b>' + esc(player.name === 'You' ? 'You' : player.name) + '</b>' : esc(sn.name);
+const esc = str => String(str).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const who = sn => sn === player ? '<b>' + esc(player.name === 'You' ? 'You' : player.name) + '</b>' : esc(sn ? sn.name : '?');
 let best = store.get('best') || { len: 0, kills: 0, secs: 0 };
 const fmtTime = s => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 function renderBest() { document.getElementById('best').textContent = best.len ? 'Your best: ' + best.len + ' segments · ' + best.kills + (best.kills === 1 ? ' kill · ' : ' kills · ') + fmtTime(best.secs) : ''; }
 const startEl = document.getElementById('start'), overEl = document.getElementById('over'), flash = document.getElementById('flash');
 const lenEl = document.getElementById('len'), boardEl = document.getElementById('board');
-function now() { return performance.now() / 1000; }
-const esc = str => String(str).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const now = () => performance.now() / 1000;
+const START_POS = new THREE.Vector3(0.3, 0.2, 1).normalize();
+let runStart = 0, runPortals = 0;
+const deathTitle = (why, killer) => why === 'sinkhole' ? 'Swallowed by a sinkhole' : why === 'storm' ? 'Swept away by the storm' : why === 'headon' ? 'Head-on with ' + (killer ? killer.name : '?') : 'Eaten by ' + (killer ? killer.name : '?');
+const flashOn = () => { flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); };
+
 function startRun() {
   const t = now();
-  attract = false; player.ai = null; player.aiState = null; document.body.classList.remove('menu');
+  attract = false; player.ghost = false; document.body.classList.remove('menu');
   player.spawn(START_POS, t);
-  bots.forEach(b => b.spawn(spawnAway(t, player.p), t));
-  jelly.length = 0; resetHoles(t);
-  foodMesh.instanceColor.needsUpdate = true;
-  resetStorms(t, player.p);
-  paused = false; gameOverFlag = false; snapCam = true; killcam = null; player.dying = false;
+  bots.forEach(b => b.spawn(world.spawnAway(t, player.p), t));
+  world.jelly.length = 0; world.resetHazards(t);
+  paused = false; gameOverFlag = false; snapCam = true; killcam = null;
   overEl.classList.remove('on');
   feed.length = 0; renderFeed();
   runStart = t; runPortals = 0;
   track('run_start', { preset: [...presetsEl.children].findIndex(b => b.classList.contains('sel')), pattern: look.pattern, named: !!look.name, touch: matchMedia('(pointer: coarse)').matches, view: planetView ? 'planet' : 'chase' });
 }
-let runStart = 0, runPortals = 0;
-let spectating = false, followIdx = -1;        // -1 = where you died, otherwise bots[followIdx]
+function gameOver(title) {
+  gameOverFlag = true;
+  const secs = Math.round(now() - runStart), len = Math.floor(player.curLen);
+  const isNew = len > best.len;
+  if (isNew) { best = { len, kills: player.kills, secs }; store.set('best', best); renderBest(); }
+  const ob = document.getElementById('overbest');
+  ob.textContent = isNew ? 'New personal best!' : (best.len ? 'Best: ' + best.len + ' segments · ' + fmtTime(best.secs) : '');
+  ob.classList.toggle('new', isNew);
+  track('run_end', { reason: title.replace(/ with .*| by .*/, ''), killer: (title.match(/(?:with|by) (.*)$/) || [])[1] || null, length: len, kills: player.kills, seconds: secs, portals: runPortals });
+  document.getElementById('overtitle').textContent = title;
+  document.getElementById('overlen').textContent = 'You reached ' + len + ' segments' + (player.kills ? ' and ate ' + player.kills + (player.kills === 1 ? ' centipede.' : ' centipedes.') : '.');
+  overEl.classList.add('on');
+}
+// the menu: your centipede parks at the spawn point under a fixed camera while the rest of the world carries on around it
+function showStart() {
+  stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
+  const t = now();
+  attract = true; paused = false; gameOverFlag = false; killcam = null;
+  player.spawn(START_POS, t); player.ghost = true;
+  bots.forEach(b => { if (!b.alive) b.spawn(world.spawnAway(t, player.p), t); });
+  if (!world.holes.some(h => h.state !== 'closed')) world.resetHazards(t);
+  snapCam = true;
+}
+// spectating
+let spectating = false, followIdx = -1, specFree = false, drag = null;
 const specEl = document.getElementById('spec'), hintEl = document.getElementById('hint');
-// free look while spectating: drag to spin the globe
-let specFree = false, drag = null;
 const specDir = new THREE.Vector3(), specUp = new THREE.Vector3(), specRight = new THREE.Vector3();
 function enterFree() {
   specFree = true; snapCam = true;
@@ -913,25 +652,14 @@ function setFollow(i) {
 }
 function startWatching() { spectating = true; overEl.classList.remove('on'); specEl.classList.add('on'); hintEl.classList.add('hide'); setFollow(-1); }
 function stopWatching() { spectating = false; specEl.classList.remove('on'); hintEl.classList.remove('hide'); }
-function gameOver(title) {
-  gameOverFlag = true;
-  const secs = Math.round(now() - runStart), len = Math.floor(player.curLen);
-  const isNew = len > best.len;
-  if (isNew) { best = { len, kills: player.kills, secs }; store.set('best', best); renderBest(); }
-  const ob = document.getElementById('overbest');
-  ob.textContent = isNew ? 'New personal best!' : (best.len ? 'Best: ' + best.len + ' segments · ' + fmtTime(best.secs) : '');
-  ob.classList.toggle('new', isNew);
-  track('run_end', { reason: title.replace(/ with .*| by .*/, ''), killer: (title.match(/(?:with|by) (.*)$/) || [])[1] || null, length: Math.floor(player.curLen), kills: player.kills, seconds: Math.round(now() - runStart), portals: runPortals });
-  document.getElementById('overtitle').textContent = title;
-  document.getElementById('overlen').textContent = 'You reached ' + Math.floor(player.curLen) + ' segments' + (player.kills ? ' and ate ' + player.kills + (player.kills === 1 ? ' centipede.' : ' centipedes.') : '.');
-  overEl.classList.add('on');
-}
-[startEl, overEl].forEach(el => el.addEventListener('pointerdown', e => e.stopPropagation()));
+[startEl, overEl, specEl].forEach(el => el.addEventListener('pointerdown', e => e.stopPropagation()));
 document.getElementById('play').addEventListener('click', () => { Sound.init(); store.set('look', look); startEl.classList.remove('on'); player.kills = 0; startRun(); });
-renderBest();
 document.getElementById('again').addEventListener('click', () => { player.kills = 0; startRun(); });
 document.getElementById('again2').addEventListener('click', () => { stopWatching(); player.kills = 0; startRun(); });
 document.getElementById('watch').addEventListener('click', () => { track('watch'); startWatching(); });
+document.getElementById('follow').addEventListener('click', () => setFollow(followIdx + 1 >= bots.length ? -1 : followIdx + 1));
+document.getElementById('relook').addEventListener('click', showStart);
+document.getElementById('relook2').addEventListener('click', () => { stopWatching(); showStart(); });
 document.getElementById('share').addEventListener('click', async () => {
   const secs = Math.round(now() - runStart), text = 'I survived ' + fmtTime(secs) + ' and ate ' + player.kills + (player.kills === 1 ? ' centipede' : ' centipedes') + ' on centi. Beat that:';
   const url = location.href.split('#')[0];
@@ -941,34 +669,17 @@ document.getElementById('share').addEventListener('click', async () => {
     else { await navigator.clipboard.writeText(text + ' ' + url); const b = document.getElementById('share'); b.textContent = 'Copied!'; setTimeout(() => b.textContent = 'Share', 1800); }
   } catch (e) {}
 });
-// cinematic mode: hides the UI and lets the camera drift around the player — for recording clips
 const cineBtn = document.getElementById('cine');
 function toggleCine() { cinematic = !cinematic; document.body.classList.toggle('cine', cinematic); camera.fov = cinematic ? 50 : 62; camera.updateProjectionMatrix(); snapCam = true; }
-cineBtn.addEventListener('click', toggleCine);
-cineBtn.addEventListener('pointerdown', e => e.stopPropagation());
-document.getElementById('follow').addEventListener('click', () => setFollow(followIdx + 1 >= bots.length ? -1 : followIdx + 1));
-document.getElementById('relook2').addEventListener('click', () => { stopWatching(); showStart(); });
-specEl.addEventListener('pointerdown', e => e.stopPropagation());
-const START_POS = new THREE.Vector3(0.3, 0.2, 1).normalize();
-// the menu: your centipede parks at the spawn point under a fixed camera while the rest of the world carries on around it
-function showStart() {
-  stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
-  const t = now();
-  attract = true; paused = false; gameOverFlag = false; killcam = null; player.dying = false;
-  player.ai = null; player.aiState = null; player.spawn(START_POS, t);
-  bots.forEach(b => { if (!b.alive) b.spawn(spawnAway(t, player.p), t); });
-  if (!holes.some(h => h.state !== 'closed')) resetHoles(t);
-  snapCam = true;
-}
-document.getElementById('relook').addEventListener('click', showStart);
+cineBtn.addEventListener('click', toggleCine); cineBtn.addEventListener('pointerdown', e => e.stopPropagation());
+renderBest();
 showStart();
 
 // ---------- input ----------
 const keys = {};
 const viewBtn = document.getElementById('view');
 function toggleView() { planetView = !planetView; snapCam = true; viewBtn.textContent = planetView ? 'Chase view' : 'Planet view'; }
-viewBtn.addEventListener('click', toggleView);
-viewBtn.addEventListener('pointerdown', e => e.stopPropagation());
+viewBtn.addEventListener('click', toggleView); viewBtn.addEventListener('pointerdown', e => e.stopPropagation());
 const touches = new Map();
 let userZoom = .6, pinchStart = 0, pinching = false;
 const ZOOM_MIN = .3, ZOOM_MAX = 1.8;
@@ -993,11 +704,10 @@ function mouseSteer() {
   const ax = (scrAhead.x + 1) / 2 * innerWidth, ay = (1 - scrAhead.y) / 2 * innerHeight;
   const shx = ax - hx, shy = ay - hy, scx = mouse.x - hx, scy = mouse.y - hy;
   const dc = Math.hypot(scx, scy), dh = Math.hypot(shx, shy);
-  if (dc < 22 || dh < 1e-3) return 0;                                    // cursor sitting on the head: go straight
-  const cross = (shx * scy - shy * scx) / (dh * dc);                     // screen is y-down, so +cross means cursor is to the right
+  if (dc < 22 || dh < 1e-3) return 0;
+  const cross = (shx * scy - shy * scx) / (dh * dc);
   const dot = (shx * scx + shy * scy) / (dh * dc);
-  const ang = Math.atan2(cross, dot);
-  return Math.max(-1, Math.min(1, ang / .35));
+  return Math.max(-1, Math.min(1, Math.atan2(cross, dot) / .35));
 }
 renderer.domElement.addEventListener('pointerdown', e => {
   if (spectating) drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
@@ -1025,36 +735,47 @@ const endTouch = e => { if (drag && e.pointerId === drag.id) drag = null; if (e.
 addEventListener('pointerup', endTouch); addEventListener('pointercancel', endTouch);
 addEventListener('wheel', e => { userZoom *= Math.exp(e.deltaY * .0012); clampZoom(); }, { passive: true });
 
-// ---------- minimap: the far side of the globe, so nothing can sneak up from behind ----------
-const miniScene = new THREE.Scene();
-miniScene.background = new THREE.Color(0x0a0e18);
+// ---------- minimap: the far side of the globe ----------
+const miniScene = new THREE.Scene(); miniScene.background = new THREE.Color(0x0a0e18);
 const miniCam = new THREE.PerspectiveCamera(38, 1, 10, 5000);
 miniScene.add(new THREE.Mesh(new THREE.SphereGeometry(R, 48, 32), new THREE.MeshBasicMaterial({ color: 0x1b2540 })));
 miniScene.add(new THREE.Mesh(new THREE.SphereGeometry(R + 1, 24, 12), new THREE.MeshBasicMaterial({ color: 0x3a4a70, wireframe: true, transparent: true, opacity: .35 })));
 const MINI_N = 48;
 const miniDots = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }), MINI_N);
 for (let i = 0; i < MINI_N; i++) miniDots.setColorAt(i, BOOST_COLOR);
-miniDots.instanceColor.needsUpdate = true;
-miniScene.add(miniDots);
-const miniCol = new THREE.Color();
-const miniLabel = document.getElementById('minilabel');
+miniDots.instanceColor.needsUpdate = true; miniScene.add(miniDots);
+const miniCol = new THREE.Color(), miniLabel = document.getElementById('minilabel');
 function drawMini(p) {
   let k = 0;
   const put = (v, size, hex) => { if (k >= MINI_N) return; tmpV.copy(v).multiplyScalar(R + size * .6); tmpM.compose(tmpV, tmpQ, tmpS.set(size, size, size)); miniDots.setMatrixAt(k, tmpM); miniDots.setColorAt(k, miniCol.set(hex)); k++; };
-  portals.forEach((n, i) => put(n, 11, portalState[i].open ? (portalState[i].left < 5 ? 0xffb02e : 0x39ff6a) : 0xff3b3b));
-  for (const st of storms) put(st.p, 16, 0xe6e9ef);
-  for (const hole of holes) if (hole.state !== 'closed') put(hole.n, 8, 0x000000);
-  for (const sn of snakes) if (sn.alive) put(sn.p, 6 + Math.min(10, sn.curLen / 40), sn === player ? 0x39ff6a : sn.ai === 'hard' ? 0xff3b3b : sn.ai === 'medium' ? 0xff9f1c : 0xffe066);
+  C.PORTALS.forEach((n, i) => put(n, 11, world.portalState[i].open ? (world.portalState[i].left < 5 ? 0xffb02e : 0x39ff6a) : 0xff3b3b));
+  for (const st of world.storms) put(st.p, 16, 0xe6e9ef);
+  for (const hole of world.holes) if (hole.state !== 'closed') put(hole.n, 8, 0x000000);
+  for (const sn of world.snakes) if (sn.alive) put(sn.p, 6 + Math.min(10, sn.curLen / 40), sn === player ? 0x39ff6a : sn.ai === 'hard' ? 0xff3b3b : sn.ai === 'medium' ? 0xff9f1c : 0xffe066);
   miniDots.count = k; miniDots.instanceMatrix.needsUpdate = true; miniDots.instanceColor.needsUpdate = true;
   miniCam.position.copy(p).multiplyScalar(-R * 3.2); miniCam.up.copy(camUpRef); miniCam.lookAt(0, 0, 0);
-  const size = Math.min(150, Math.floor(innerWidth * .3));
-  const y = 48;
-  renderer.setScissorTest(true);
-  renderer.setViewport(12, y, size, size); renderer.setScissor(12, y, size, size);
+  const size = Math.min(150, Math.floor(innerWidth * .3)), y = 48;
+  renderer.setScissorTest(true); renderer.setViewport(12, y, size, size); renderer.setScissor(12, y, size, size);
   renderer.render(miniScene, miniCam);
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
   miniLabel.style.bottom = (y + size + 2) + 'px';
+}
+
+// ---------- events from the simulation → sounds, feed, killcam, analytics ----------
+function handleEvents(events, t) {
+  for (const e of events) {
+    const sn = byId(e.id), mine = sn === player && !attract;
+    if (e.type === 'eat') { if (mine) Sound.eat(e.boost); }
+    else if (e.type === 'jelly') { if (mine) Sound.jelly(); }
+    else if (e.type === 'portal') { if (mine) { runPortals++; snapCam = true; Sound.portal(); flashOn(); } }
+    else if (e.type === 'sever') { feedMsg(who(sn) + ' lost ' + e.lost + ' segments to a portal'); if (mine) { Sound.snip(); flashOn(); } }
+    else if (e.type === 'death') {
+      const killer = e.killer ? byId(e.killer) : null;
+      feedMsg(e.why === 'eaten' ? who(killer) + ' ate ' + who(sn) : e.why === 'headon' ? who(sn) + ' and ' + who(killer) + ' collided' : e.why === 'sinkhole' ? who(sn) + ' fell into a sinkhole' : who(sn) + (sn === player ? ' were' : ' was') + ' swept away by a storm');
+      if (killer === player && !attract) { Sound.kill(); track('kill', { victim: sn.name, tier: sn.ai, length: Math.floor(player.curLen) }); }
+      if (sn === player) { killcam = { start: t, until: t + 2.3, title: deathTitle(e.why, killer) }; Sound.death(); snapCam = true; }
+    }
+  }
 }
 
 // ---------- loop ----------
@@ -1066,126 +787,48 @@ function frame(nowMs) {
   const dtReal = Math.min((nowMs - last) / 1000, .05); last = nowMs;
   const t = nowMs / 1000;
   const dt = killcam ? dtReal * .28 : dtReal;       // slow motion while the killcam plays
-  const running = !paused;
 
-  // portals: each pole runs its own clock (green → amber at 5 s left → red at 1 s left, then gone).
-  // When either portal closes while a body is still streaming between the poles, the far half is severed and becomes jelly.
-  portalRings.forEach((g, i) => {
-    const cy = PORTAL_CYCLES[i], st = portalState[i];
-    const cycle = (t + cy.phase) % (cy.open + cy.closed);
-    const open = cycle < cy.open, left = cy.open - cycle;
-    if (st.open && !open) for (const sn of snakes) if (sn.alive && sn.cutPoint) sn.sever(t);   // a body spans both poles; either one closing cuts it
-    st.open = open; st.left = left;
-    const pc = !open || left < 1 ? PORTAL_RED : left < 5 ? PORTAL_AMBER : PORTAL_GREEN;
-    g.visible = open;
-    g.rotation.z += dt * (i ? -1 : 1) * (left < 5 ? 3 : .8);
-    g.children[0].material.color.copy(pc); g.children[0].material.emissive.copy(pc); g.children[1].material.color.copy(pc);
-    g.children[0].material.emissiveIntensity = left < 1 ? 1.5 + Math.sin(t * 40) * .8 : 1.2 + Math.sin(t * 4) * .3;
-  });
-  // once the tail has fully passed through, the cut is gone and there's nothing left to sever
-  for (const sn of snakes) if (sn.cutPoint && sn.trail.indexOf(sn.cutPoint) <= 0) { sn.cutPoint = null; sn.cutPortal = -1; }
-
-  if (running) {
-    // player input (or, on the menu, a gentle wander)
-    if (attract) { /* menu: the player's centipede stays put; everything else runs */ }
-    else if (player.alive && !player.dying) {
-    let s = 0;
-    if (keys.ArrowLeft || keys.KeyA) s -= 1;
-    if (keys.ArrowRight || keys.KeyD) s += 1;
-    if (s === 0 && touches.size === 0 && mouse.active) s = mouseSteer();
-    if (touches.size === 1) s = [...touches.values()][0].side;
-    const boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching);
-    if (player.move(dt, s, boost)) { snapCam = true; runPortals++; Sound.portal(); flash.classList.add('on'); requestAnimationFrame(() => flash.classList.remove('on')); }
+  if (!paused) {
+    if (player.alive && !attract) {
+      let s = 0;
+      if (keys.ArrowLeft || keys.KeyA) s -= 1;
+      if (keys.ArrowRight || keys.KeyD) s += 1;
+      if (s === 0 && touches.size === 0 && mouse.active) s = mouseSteer();
+      if (touches.size === 1) s = [...touches.values()][0].side;
+      world.setInput(player.id, s, !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching));
     }
-
-    // bots
-    for (const b of bots) {
-      if (!b.alive) { if (t >= b.respawnAt) b.spawn(spawnAway(t, player.p), t); continue; }
-      const cmd = botThink(b, t, dt);
-      b.move(dt, cmd.steer, cmd.boost);
-    }
-
-    updateHoles(t, dt, player.p);
-    updateStorms(t, dt);
-
-    // eating
-    for (const sn of snakes) {
-      if (!sn.alive) continue;
-      for (let i = 0; i < FOOD_N; i++) {
-        const f = food[i];
-        if (f.respawnAt <= t && sn.p.angleTo(f.p) * R < (f.boost ? 7 : 4)) {
-          sn.targetLen += f.boost ? Math.max(4, sn.targetLen * .25) : 1;
-          if (sn === player && !attract) Sound.eat(f.boost);
-          const rs = f.boost ? BOOST_RESPAWN : FOOD_RESPAWN;
-          f.p = randUnit(); f.respawnAt = t + rs[0] + Math.random() * (rs[1] - rs[0]);
-        }
-      }
-      for (let i = jelly.length - 1; i >= 0; i--) if (sn.p.angleTo(jelly[i].p) * R < 3.6) { sn.targetLen += 2; jelly.splice(i, 1); if (sn === player && !attract) Sound.jelly(); }
-    }
-
-    // collisions: head into any other body, head-to-head, sinkholes
-    const dead = [];
-    for (const sn of snakes) {
-      if (!sn.alive || sn.dying || (attract && sn === player)) continue;
-      if (inHole(sn.p)) { dead.push([sn, 'Swallowed by a sinkhole', null]); continue; }
-      if (inStorm(sn.p)) { dead.push([sn, 'Swept away by the storm', null]); continue; }
-      for (const o of snakes) {
-        if (o === sn || !o.alive) continue;
-        const dh = sn.p.distanceTo(o.p) * R;
-        const hr = HIT_R * (.55 + .45 * o.girth());                       // fatter bodies are easier to hit
-        if (dh < hr * 1.2) { dead.push([sn, 'Head-on with ' + o.name, o]); break; }
-        if (dh > o.trail.length * SEG + hr + 2) continue;
-        let hit = false;
-        for (let i = 0; i < o.trail.length; i++) if (sn.p.distanceTo(o.trail[i]) * R < hr) { hit = true; break; }
-        if (hit) { dead.push([sn, 'Eaten by ' + o.name, o]); break; }
-      }
-    }
-    for (const [sn, why, killer] of dead) {
-      if (!sn.alive || sn.dying) continue;
-      if (killer && killer.alive) { killer.kills++; if (killer === player) { Sound.kill(); track('kill', { victim: sn.name, tier: sn.ai, length: Math.floor(player.curLen) }); } }
-      feedMsg(why.startsWith('Eaten') ? who(killer) + ' ate ' + who(sn) : why.startsWith('Head-on') ? who(sn) + ' and ' + who(killer) + ' collided' : why.startsWith('Swallowed') ? who(sn) + ' fell into a sinkhole' : who(sn) + (sn === player ? ' were' : ' was') + ' swept away by a storm');
-      if (sn === player) { player.dying = true; killcam = { start: t, until: t + 2.3, why }; Sound.death(); snapCam = true; }
-      else sn.die(t, why);
-    }
-    if (killcam && t >= killcam.until) { player.die(t, killcam.why); const why = killcam.why; killcam = null; player.dying = false; gameOver(why); }
+    handleEvents(world.step(dt, t), t);
+    if (killcam && t >= killcam.until) { const title = killcam.title; killcam = null; gameOver(title); }
   }
 
   // draw
-  { const horizon = R / camera.position.length() + .02;      // a hole past the horizon must not draw through the globe
-    for (const hole of holes) if (hole.state !== 'closed') hole.grp.visible = hole.n.dot(tmpV.copy(camera.position).normalize()) > horizon; }
-  for (let i = 0; i < FOOD_N; i++) placeFood(i, t);
-  foodMesh.instanceMatrix.needsUpdate = true;
-  drawJelly(t);
-  for (const sn of snakes) sn.draw(t);
+  drawPortals(t, dt); drawHoles(t, dt); drawStorms(t, dt); drawFood(t); drawJelly(t);
+  for (const v of views.values()) v.draw(t);
 
-  // camera follows the player (its last position if dead)
+  // camera
   const camSnake = spectating && followIdx >= 0 ? bots[followIdx] : player;
   const p = camSnake.p, h = camSnake.h;
   camUpRef.sub(tmpV.copy(p).multiplyScalar(camUpRef.dot(p))).normalize();
   if (killcam || (cinematic && !spectating)) {
-    // killcam: slow orbit around the moment of death. cinematic / menu: the same drift, forever.
-    // orbit relative to a stable reference (camUpRef), never the heading — otherwise every turn swings the whole shot
-    const a = killcam ? (t - killcam.start) * .9 + .6 : .55;   // menu / cinematic: fixed angle, no orbit — orbiting makes the ground rotate underneath
+    const a = killcam ? (t - killcam.start) * .9 + .6 : .55;
     tmpV2.copy(killcam ? h : camUpRef).applyAxisAngle(p, a);
     camPos.copy(p).addScaledVector(tmpV2, -.26).normalize().multiplyScalar(R + (killcam ? 42 : 60 * userZoom));
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(killcam ? .02 : .3, dtReal));
-    camera.up.copy(killcam ? h : camUpRef);   // looking almost straight down, so "up" must be a tangent, never the surface normal (that's what made it spin)
+    camera.up.copy(killcam ? h : camUpRef);   // looking almost straight down: "up" must be a tangent, never the surface normal
     camera.lookAt(camTarget.copy(p).multiplyScalar(R + 3));
   } else if (spectating && specFree) {
     const vh = camera.fov * Math.PI / 360, hh = Math.atan(Math.tan(vh) * camera.aspect);
     const d = Math.max(R + 45, R / Math.sin(Math.min(vh, hh)) * 1.06 * userZoom);
     camPos.copy(specDir).multiplyScalar(d);
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(.0005, dt));
-    camera.up.copy(specUp);
-    camera.lookAt(0, 0, 0);
+    camera.up.copy(specUp); camera.lookAt(0, 0, 0);
   } else if (planetView) {
     const vh = camera.fov * Math.PI / 360, hh = Math.atan(Math.tan(vh) * camera.aspect);
     const zoom = 1 + Math.min(.7, (camSnake.curLen - 10) / 350);
     const d = Math.max(R + 45, R / Math.sin(Math.min(vh, hh)) * 1.06 * zoom * userZoom);
     camPos.copy(p).multiplyScalar(d);
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(.01, dt));
-    camera.up.copy(camUpRef);
-    camera.lookAt(0, 0, 0);
+    camera.up.copy(camUpRef); camera.lookAt(0, 0, 0);
   } else {
     camPos.copy(p).addScaledVector(h, -.30 * userZoom).normalize().multiplyScalar(R + 95 * userZoom);
     if (snapCam) { camera.position.copy(camPos); snapCam = false; } else camera.position.lerp(camPos, 1 - Math.pow(.002, dt));
@@ -1200,17 +843,14 @@ function frame(nowMs) {
   boardTimer -= dt;
   if (boardTimer <= 0) {
     boardTimer = .5;
-    const all = snakes.filter(x => x.alive || x === player).sort((a, b) => b.curLen - a.curLen);
-    const rows = all.slice(0, 10); const me = all.indexOf(player);
-    if (me >= 10) rows.push(player);
-    const rank = x => all.indexOf(x);
-    boardEl.innerHTML = rows.map(x => '<div' + (x === player ? ' class="me"' : '') + '>' + (rank(x) + 1) + '. ' + esc(x.name) + (x.isBot ? ' <span style="opacity:.55">(' + x.ai + ')</span>' : '') + ' <b>' + Math.floor(x.curLen) + '</b></div>').join('');
+    const all = world.snakes.filter(x => x.alive || x === player).sort((a, b) => b.curLen - a.curLen);
+    const rows = all.slice(0, 10); if (all.indexOf(player) >= 10) rows.push(player);
+    boardEl.innerHTML = rows.map(x => '<div' + (x === player ? ' class="me"' : '') + '>' + (all.indexOf(x) + 1) + '. ' + esc(x.name) + (x.isBot ? ' <span style="opacity:.55">(' + x.ai + ')</span>' : '') + ' <b>' + Math.floor(x.curLen) + '</b></div>').join('');
+    let ch = false; for (let i = feed.length - 1; i >= 0; i--) if (feed[i].until < t) { feed.splice(i, 1); ch = true; } if (ch) renderFeed();
   }
 
-  if (boardTimer === .5) { let ch = false; for (let i = feed.length - 1; i >= 0; i--) if (feed[i].until < t) { feed.splice(i, 1); ch = true; } if (ch) renderFeed(); }
-
-  Sound.setBoost(player.alive && player.boost && !player.dying);
-  Sound.setRumble(player.alive && !player.dying ? (player.pullK || 0) : 0);
+  Sound.setBoost(player.alive && player.boost);
+  Sound.setRumble(player.alive ? (player.pullK || 0) : 0);
   renderer.render(scene, camera);
   if (!cinematic && !paused && !attract) drawMini(p); else miniLabel.style.bottom = '-100px';
   requestAnimationFrame(frame);
