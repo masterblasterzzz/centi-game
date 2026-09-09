@@ -35,6 +35,7 @@ class Room {
     this.t = 0;
     this.emptySince = Date.now();
     this.world.resetHazards(0);
+    this.world.eatSlack = 4;   // humans: match the client's prediction tolerance so touched pellets count
     this.topUpBots();
   }
   get humanCount() { return this.clients.size; }

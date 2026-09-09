@@ -337,7 +337,7 @@
       for (const sn of this.snakes) {
         if (!sn.alive) continue;
         for (const f of this.food) {
-          if (f.respawnAt <= t && sn.p.angleTo(f.p) * R < (f.boost ? 7 : 4)) {
+          if (f.respawnAt <= t && sn.p.angleTo(f.p) * R < (f.boost ? 7 : 4) + (sn.isBot ? 0 : (this.eatSlack || 0))) {
             sn.targetLen += f.boost ? Math.max(4, sn.targetLen * .25) : 1;
             this.events.push({ type: 'eat', id: sn.id, boost: f.boost });
             const rs = f.boost ? C.BOOST_RESPAWN : C.FOOD_RESPAWN;
