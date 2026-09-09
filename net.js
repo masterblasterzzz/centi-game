@@ -115,6 +115,7 @@
     // called every frame: move each snake along its buffered server positions and rebuild its trail
     interpolate(dtReal) {
       if (!this.ready) return;
+      this.world.updatePortals(this.serverT);      // portals run on the server's clock; nothing else steps the world online
       // Keep the render clock about `lag` behind the server. Clamping it to serverT instead pins us to
       // the newest snapshot, which means no interpolation at all: heads then jump ten times a second
       // and every centipede appears to wobble from side to side.
@@ -147,8 +148,13 @@
     // The server stays in charge: its position is extrapolated to now and the prediction is eased
     // onto it, hard if we have drifted badly.
     predictSelf(sn, dtReal) {
-      const C = CentiSim.C;
-      sn.move(dtReal, this.lastInput.steer, this.lastInput.boost, this.world);
+      const C = CentiSim.C, w = this.world;
+      // Portal jumps are the server's call. If we jumped locally, the next server sample would still
+      // show us at the near pole and the correction would drag us back, then across again. Instead,
+      // hold at the mouth until the server puts us through, then snap out the far side in one move.
+      const atPortal = sn.portalCooldown <= 0 && C.PORTALS.some((n, i) => w.portalState[i].open && sn.p.angleTo(n) * C.R < C.PORTAL_R + 1);
+      if (atPortal) sn.steer = 0; else sn.move(dtReal, this.lastInput.steer, this.lastInput.boost, w);
+      if (sn.portalCooldown > 0) sn.portalCooldown -= dtReal;
       sn.curLen += ((sn.serverLen !== undefined ? sn.serverLen : sn.curLen) - sn.curLen) * Math.min(1, dtReal * 6);
       sn.targetLen = sn.curLen;
       const s = this.selfSample;
@@ -163,7 +169,7 @@
       axis.normalize();
       const target = s.p.clone().applyAxisAngle(axis, (s.speed || C.BASE_SPEED) * age / C.R).normalize();
       const err = sn.p.angleTo(target) * C.R;
-      if (err > 60) sn.p.copy(target);                                              // badly out of step: take the server's word
+      if (err > 60) { sn.p.copy(target); sn.h.copy(s.h); sn.portalCooldown = 2.5; sn.record(); }   // out of step (portal jump, lag spike): take the server's word
       else if (err > 7) sn.p.lerp(target, Math.min(1, dtReal * 1.2)).normalize();   // real drift: ease onto it
       // under 7 units: prediction and server agree; leave it alone
       sn.h.sub(new THREE.Vector3().copy(sn.p).multiplyScalar(sn.h.dot(sn.p)));
