@@ -113,7 +113,7 @@ const holeViews = world.holes.map(() => {
   return { grp, swirl, pullRing };
 });
 function drawHoles(t, dt) {
-  const horizon = R / camera.position.length() + .02;      // a hole past the horizon must not draw through the globe
+  const horizon = R / camera.position.length() + .14;      // a hole past the horizon must not draw through the globe
   const camDir = tmpV2.copy(camera.position).normalize();
   world.holes.forEach((hole, i) => {
     const v = holeViews[i];
