@@ -426,7 +426,7 @@ const flashOn = () => { flash.classList.add('on'); requestAnimationFrame(() => f
 // ---------- online ----------
 function goOnline() {
   const t = now();
-  online = true; attract = false; document.body.classList.remove('menu');
+  online = true; attract = false; mouse.moved = false; document.body.classList.remove('menu');
   paused = false; gameOverFlag = false; snapCam = true; killcam = null;
   overEl.classList.remove('on'); startEl.classList.remove('on');
   feed.length = 0; renderFeed(); runStart = t; runPortals = 0;
@@ -462,7 +462,7 @@ function netStatus(msg) { const el = document.getElementById('netstatus'); el.te
 function startRun() {
   const t = now();
   if (online) goSolo();
-  attract = false; player.ghost = false; document.body.classList.remove('menu');
+  attract = false; player.ghost = false; mouse.moved = false; document.body.classList.remove('menu');
   player.spawn(START_POS, t);
   bots.forEach(b => b.spawn(world.spawnAway(t, player.p), t));
   world.jelly.length = 0; world.resetHazards(t);
@@ -528,12 +528,12 @@ function stopWatching() { spectating = false; specEl.classList.remove('on'); hin
 document.getElementById('play').addEventListener('click', () => { Sound.init(); store.set('look', look); startEl.classList.remove('on'); startRun(); });
 document.getElementById('playonline').addEventListener('click', () => { Sound.init(); store.set('look', look); goOnline(); });
 document.getElementById('again').addEventListener('click', () => {
-  if (online && net) { overEl.classList.remove('on'); gameOverFlag = false; killcam = null; snapCam = true; runStart = now(); net.respawn(); return; }
+  if (online && net) { overEl.classList.remove('on'); gameOverFlag = false; killcam = null; snapCam = true; runStart = now(); mouse.moved = false; net.respawn(); return; }
   player.kills = 0; startRun();
 });
 document.getElementById('again2').addEventListener('click', () => {
   stopWatching();
-  if (online && net) { gameOverFlag = false; killcam = null; snapCam = true; runStart = now(); net.respawn(); return; }
+  if (online && net) { gameOverFlag = false; killcam = null; snapCam = true; runStart = now(); mouse.moved = false; net.respawn(); return; }
   player.kills = 0; startRun();
 });
 document.getElementById('watch').addEventListener('click', () => { track('watch'); startWatching(); });
@@ -581,7 +581,7 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
 // mouse: the centipede follows the cursor; hold the button to boost
-const mouse = { x: 0, y: 0, active: false, down: false };
+const mouse = { x: 0, y: 0, active: false, down: false, moved: false };
 const scrHead = new THREE.Vector3(), scrAhead = new THREE.Vector3();
 function mouseSteer() {
   const self = me();
@@ -609,7 +609,7 @@ renderer.domElement.addEventListener('pointermove', e => {
     if (!specFree && Math.hypot(dx, dy) > 6) enterFree();
     if (specFree) { orbit(dx, dy); drag.x = e.clientX; drag.y = e.clientY; }
   }
-  if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; return; }
+  if (e.pointerType === 'mouse') { mouse.x = e.clientX; mouse.y = e.clientY; mouse.active = true; mouse.moved = true; return; }
   const tch = touches.get(e.pointerId); if (!tch) return;
   tch.x = e.clientX; tch.y = e.clientY;
   if (touches.size === 2) {
@@ -682,7 +682,7 @@ function frame(nowMs) {
     if (self.alive && !attract) {
       if (keys.ArrowLeft || keys.KeyA) steer -= 1;
       if (keys.ArrowRight || keys.KeyD) steer += 1;
-      if (steer === 0 && touches.size === 0 && mouse.active) steer = mouseSteer();
+      if (steer === 0 && touches.size === 0 && mouse.active && mouse.moved) steer = mouseSteer();
       if (touches.size === 1) steer = [...touches.values()][0].side;
       boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching);
     }
