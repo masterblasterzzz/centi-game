@@ -39,6 +39,8 @@ Chrome gotchas learned 10 Sep:
   until you die. Any state you read from a hidden tab is junk. Bring the window to the front first.
 - `net`, `player`, `world`, `mouse`, `camera` are top-level `let`/`const`, **not** on `window` — in
   `javascript_tool` use the bare names, never `window.net`.
+- If this session pushes to the repo (e.g. this file) while Craig has local commits, his `git push` is
+  rejected: `git pull --rebase && git push`.
 
 Craig is direct, ADHD/dyslexic, prefers short messages and honest pushback, and is comfortable in
 Terminal (zsh on an iMac). He types in caps a lot; it's not shouting.
@@ -104,6 +106,9 @@ Built in three.js r128 from CDN. No build step, no framework.
   Forgetting this made your own centipede invisible online.
 - **Camera "up" is a parallel-transported tangent (`camUpRef`)**, never the heading and never the surface
   normal when looking straight down. Both caused spinning.
+- **Cursor steering waits for the mouse to move** (`mouse.moved`, reset on every spawn). Online you spawn
+  at a random point and the camera snaps there; without this the stale cursor from the *Play* click
+  yanked you into a turn on frame one.
 - **Menu:** live world runs behind the card, your centipede parks at spawn under a fixed camera.
 
 ---
@@ -111,7 +116,7 @@ Built in three.js r128 from CDN. No build step, no framework.
 ## Key constants
 
 `sim.js` → `C`: `R=340` · `SEG=2.1` · `MAX_SEG=1600` · `BASE_SPEED=48` · `TURN=4` (turn radius ≈ 12) ·
-`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius `HOLE_R` after the 10 Sep pm fix; was `HOLE_R*.9`) ·
+`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius = `HOLE_R`, the drawn shaft edge; was `HOLE_R*.9` until 10 Sep) ·
 `STORM_N=2, STORM_R=22` · `PORTAL_R=12`, cycles `[20 open/8 closed]` and `[18/10, phase 13]` ·
 `GRACE_LEN=30, GRACE_SECS=20` (bots don't hunt newcomers).
 
@@ -122,7 +127,7 @@ and that `fly deploy` ran), `ROOM_CAP=40`, `MIN_POP=10`, `IDLE_MS=60000`.
 
 `client.js`: `SERVER_URL='wss://centi-server.fly.dev'`, default `userZoom=.95` (persisted as
 `centi.zoom`), sinkhole horizon cull `+ .14` (was `.02`; Craig applies via sed — check it landed),
-`mouse.moved` gate — cursor steering is ignored until the mouse moves after a spawn (see 10 Sep pm).
+`mouse.moved` gate (see above).
 
 ---
 
@@ -151,9 +156,9 @@ macOS sed needs `sed -i ''`.
 
 ## Open issues (as of 10 Sep, evening)
 
-1. **Verify two fixes landed** (Craig applies both via sed, see session log):
-   - *stale-cursor spawn turn* — client.js, `grep -c "mouse.moved" client.js` → 7, hard-reload.
-   - *sinkhole kill radius* — sim.js, `grep -c "HOLE_R \* .9" sim.js` → 0, then `fly deploy`.
+1. **Play-test the two 10 Sep pm fixes** — both are on `main` (verified: `grep -c "mouse.moved" client.js`
+   → 6; `grep -c "HOLE_R \* .9" sim.js` → 0). Craig ran `fly deploy`. Still to confirm by play: dead
+   straight at spawn until the mouse moves; death at the sinkhole rim, not short of it.
 2. **Verify the earlier round**: pellets vanish on touch, no sticky head at a pole, no dark sinkhole
    cones on the horizon, server at 20 Hz (`grep SNAP_HZ server.js`).
 3. **"Connecting…" freeze** before an online run: your parked centipede is shown but can't move until
@@ -218,5 +223,6 @@ follow-cursor steering yanks you toward the stale cursor until the heading lines
 under the menu camera, so it doesn't show). The client also sends that steer to the server before `full`
 arrives. Fix: `mouse.moved` flag — set false in `goOnline`, `startRun` and both respawn buttons, set true
 in `pointermove`, required by the `mouseSteer()` call. Client-only. The "sticky" part is the
-Connecting… freeze (issue 3). Also handed Craig the sinkhole fix: kill at `HOLE_R` (9, the shaft edge)
-instead of `HOLE_R * .9` (8.1) in `sim.js` `inHole` and the pull inner radius — server change.
+Connecting… freeze (issue 3). Sinkhole fix: kill at `HOLE_R` (9, the shaft edge) instead of
+`HOLE_R * .9` (8.1) in `sim.js` `inHole` and the pull inner radius — server change. Craig applied both
+via sed, pushed, and ran `fly deploy`; play-test pending.
