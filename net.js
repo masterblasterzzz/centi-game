@@ -17,6 +17,7 @@
       this.buffer = new Map();         // snake id -> [{t, p, h, len}] recent server positions
       this.lastInput = { steer: 0, boost: false };
       this.selfSample = null;          // newest server truth for MY snake, with the wall-clock time it landed
+      this.holdSince = 0;
       this.onEvents = this.opts.onEvents || (() => {});
       this.onOpen = this.opts.onOpen || (() => {});
       this.onClose = this.opts.onClose || (() => {});
@@ -160,9 +161,22 @@
       // Portal jumps are the server's call. If we jumped locally, the next server sample would still
       // show us at the near pole and the correction would drag us back, then across again. Instead,
       // hold at the mouth until the server puts us through, then snap out the far side in one move.
-      const atPortal = sn.portalCooldown <= 0 && C.PORTALS.some((n, i) => w.portalState[i].open && sn.p.angleTo(n) * C.R < C.PORTAL_R + 1);
-      if (atPortal) sn.steer = 0; else sn.move(dtReal, this.lastInput.steer, this.lastInput.boost, w);
+      // Hold only once the server's copy is certain to have entered too (a touch inside the ring), and
+      // never for long: if the server's copy grazed the edge and missed, waiting here is what made the
+      // head go sticky near a pole.
+      const nowS = performance.now() / 1000;
+      const atPortal = sn.portalCooldown <= 0 && C.PORTALS.some((n, i) => w.portalState[i].open && sn.p.angleTo(n) * C.R < C.PORTAL_R - 1.5);
+      if (atPortal && !this.holdSince) this.holdSince = nowS;
+      if (atPortal && nowS - this.holdSince < .35) sn.steer = 0;
+      else { if (atPortal) sn.portalCooldown = .6; this.holdSince = 0; sn.move(dtReal, this.lastInput.steer, this.lastInput.boost, w); }
       if (sn.portalCooldown > 0) sn.portalCooldown -= dtReal;
+      // Eat pellets the moment *my* head touches them. The server decides for real ~100 ms later; hide
+      // the pellet now, and if no confirmation arrives it simply comes back. Waiting for the server made
+      // pellets vanish from under your body, or not at all when its copy of you passed a whisker wide.
+      for (const f of w.food) {
+        if (f.respawnAt > nowS) continue;
+        if (sn.p.angleTo(f.p) * C.R < (f.boost ? 7 : 4.5)) f.respawnAt = nowS + .7;
+      }
       sn.curLen += ((sn.serverLen !== undefined ? sn.serverLen : sn.curLen) - sn.curLen) * Math.min(1, dtReal * 6);
       sn.targetLen = sn.curLen;
       const s = this.selfSample;
@@ -180,7 +194,7 @@
       if (err > 60) {                                                    // out of step (portal jump, lag spike): take the server's word
         const portal = sn.p.angleTo(target) > 2.6;                        // near-antipodal = a portal jump, not a lag spike
         sn.p.copy(target); sn.h.copy(s.h); sn.record();
-        if (portal) { sn.portalCooldown = 2.5; this.onEvents([{ type: 'portal', id: this.id }]); }   // snap the camera and play the sound now, not 100 ms early
+        if (portal) { sn.portalCooldown = 2.5; this.holdSince = 0; this.onEvents([{ type: 'portal', id: this.id }]); }   // snap the camera and play the sound now, not 100 ms early
       }
       else if (err > 7) sn.p.lerp(target, Math.min(1, dtReal * 1.2)).normalize();   // real drift: ease onto it
       // under 7 units: prediction and server agree; leave it alone
