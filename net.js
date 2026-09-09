@@ -73,7 +73,11 @@
           while (buf.length > 8) buf.shift();
           const sn = w.snakes.find(x => x.id === id);
           if (sn) sn.serverLen = len;
-          if (id === this.id) this.selfSample = { p: v3(p), h: v3(h), at: performance.now() / 1000 };
+          if (id === this.id) {
+            const prev = this.selfSample, np = v3(p);
+            const speed = prev && m.t > prev.t ? prev.p.angleTo(np) * CentiSim.C.R / (m.t - prev.t) : CentiSim.C.BASE_SPEED;
+            this.selfSample = { p: np, h: v3(h), t: m.t, at: performance.now() / 1000, speed };
+          }
         }
         for (const sn of w.snakes) if (sn.alive && !live.has(sn.id)) sn.alive = false;   // died between events
         return;
@@ -100,6 +104,7 @@
         else if (e.type === 'hole') { const h = w.holes[e.i]; if (h) { if (e.n) h.n.copy(v3(e.n)); h.state = e.state; h.t0 = e.t0; } }
         else if (e.type === 'food') { const f = w.food[e.i]; if (f) { f.p.copy(v3(e.p)); f.respawnAt = e.r; } }
         else if (e.type === 'spawn') {
+          if (e.id === this.id) this.selfSample = null;
           const existing = w.snakes.find(x => x.id === e.id);
           if (existing) w.removeSnake(e.id);
           if (e.snake) this.addSnake(e.snake);
@@ -148,13 +153,19 @@
       sn.targetLen = sn.curLen;
       const s = this.selfSample;
       if (!s) return;
-      // where the server's last word puts me *now*, carried forward along its heading
-      const age = Math.min(.6, performance.now() / 1000 - s.at);
-      const axis = new THREE.Vector3().crossVectors(s.p, s.h).normalize();
-      const target = s.p.clone().applyAxisAngle(axis, C.BASE_SPEED * age / C.R).normalize();
+      // Where the server's last word puts me *now*, carried forward along its heading at my measured
+      // speed (so boost counts). This guess is straight-line, so in a turn it is slightly off the curve:
+      // that is why small errors are ignored entirely. Correcting them every sample is what made the
+      // centipede wobble side to side and boost feel like it did nothing.
+      const age = Math.min(.5, performance.now() / 1000 - s.at);
+      const axis = new THREE.Vector3().crossVectors(s.p, s.h);
+      if (axis.lengthSq() < 1e-8) return;
+      axis.normalize();
+      const target = s.p.clone().applyAxisAngle(axis, (s.speed || C.BASE_SPEED) * age / C.R).normalize();
       const err = sn.p.angleTo(target) * C.R;
-      if (err > 55) sn.p.copy(target);                                   // badly out of step: take the server's word
-      else if (err > 1) sn.p.lerp(target, Math.min(1, dtReal * 2)).normalize();   // otherwise drift onto it gently
+      if (err > 60) sn.p.copy(target);                                              // badly out of step: take the server's word
+      else if (err > 7) sn.p.lerp(target, Math.min(1, dtReal * 1.2)).normalize();   // real drift: ease onto it
+      // under 7 units: prediction and server agree; leave it alone
       sn.h.sub(new THREE.Vector3().copy(sn.p).multiplyScalar(sn.h.dot(sn.p)));
       if (sn.h.lengthSq() < 1e-8) sn.h.copy(s.h); else sn.h.normalize();
     }
