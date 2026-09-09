@@ -183,7 +183,7 @@
       for (const st of this.storms) { let pos; do { pos = randUnit(); } while ((from && pos.angleTo(from.p) * R < 170) || this.storms.some(o => o !== st && o.p.angleTo(pos) * R < C.PULL_R * 2.5)); st.p = pos; st.h = tangentAt(pos); }
     }
     // --- hazards ---
-    inHole(p) { return this.holes.some(h => h.state === 'open' && p.angleTo(h.n) * R < C.HOLE_R * .9); }
+    inHole(p) { return this.holes.some(h => h.state === 'open' && p.angleTo(h.n) * R < C.HOLE_R); }
     inStorm(p) { return this.storms.some(st => p.angleTo(st.p) * R < C.STORM_R * .8); }
     pullToward(p, centre, dist, innerR, outerR, maxPull, dt) {
       const k = Math.max(0, 1 - (dist - innerR) / (outerR - innerR));   // 0 at the outer ring, 1 at the hazard edge
@@ -198,7 +198,7 @@
     applyPull(p, dt) {          // suction from storms and open sinkholes; returns strength 0..1
       let k = 0;
       for (const st of this.storms) { const d = p.angleTo(st.p) * R; if (d < C.PULL_R) k = Math.max(k, this.pullToward(p, st.p, d, C.STORM_R * .8, C.PULL_R, C.PULL_MAX, dt)); }
-      for (const hole of this.holes) { if (hole.state !== 'open') continue; const d = p.angleTo(hole.n) * R; if (d < C.HOLE_PULL_R) k = Math.max(k, this.pullToward(p, hole.n, d, C.HOLE_R * .9, C.HOLE_PULL_R, C.HOLE_PULL_MAX, dt)); }
+      for (const hole of this.holes) { if (hole.state !== 'open') continue; const d = p.angleTo(hole.n) * R; if (d < C.HOLE_PULL_R) k = Math.max(k, this.pullToward(p, hole.n, d, C.HOLE_R, C.HOLE_PULL_R, C.HOLE_PULL_MAX, dt)); }
       return k;
     }
     updateHoles(t, dt) {
