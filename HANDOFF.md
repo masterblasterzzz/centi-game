@@ -1,6 +1,6 @@
 # centi.gg — Handoff
 
-**Date:** 10 September 2026
+**Date:** 10 September 2026 (evening)
 **Owner:** Craig Muirhead (New Zealand)
 **Live:** https://centi.gg (HTTPS, certificate issued, Enforce HTTPS on)
 **Repo:** github.com/masterblasterzzz/centi-game (public, `main`, GitHub Pages from root)
@@ -27,6 +27,18 @@ Working loop that suits him:
    changes there instead of re-pushing the whole file.
 5. Every server-side change (`server.js`, `sim.js`) needs Craig to run
    `cd ~/centi-game && git pull && fly deploy`. Client-only changes just need a hard-reload.
+
+Chrome gotchas learned 10 Sep:
+
+- **Only one Claude can hold the extension at a time.** If Craig has the Claude side panel open in
+  Chrome, that session owns the browser and this session's tab group silently disappears
+  (`tabs_context_mcp` → "No tab group exists"). The split that works: Craig plays with the side-panel
+  Claude watching the live tab, and this session does code reading, fixes and the handoff. Don't fight it.
+- **A hidden tab renders zero frames.** Chrome stops `requestAnimationFrame` in background tabs, so
+  the client stops sending input and predicting; the server keeps moving you (straight, at base speed)
+  until you die. Any state you read from a hidden tab is junk. Bring the window to the front first.
+- `net`, `player`, `world`, `mouse`, `camera` are top-level `let`/`const`, **not** on `window` — in
+  `javascript_tool` use the bare names, never `window.net`.
 
 Craig is direct, ADHD/dyslexic, prefers short messages and honest pushback, and is comfortable in
 Terminal (zsh on an iMac). He types in caps a lot; it's not shouting.
@@ -99,7 +111,7 @@ Built in three.js r128 from CDN. No build step, no framework.
 ## Key constants
 
 `sim.js` → `C`: `R=340` · `SEG=2.1` · `MAX_SEG=1600` · `BASE_SPEED=48` · `TURN=4` (turn radius ≈ 12) ·
-`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius `HOLE_R*.9`) ·
+`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius `HOLE_R` after the 10 Sep pm fix; was `HOLE_R*.9`) ·
 `STORM_N=2, STORM_R=22` · `PORTAL_R=12`, cycles `[20 open/8 closed]` and `[18/10, phase 13]` ·
 `GRACE_LEN=30, GRACE_SECS=20` (bots don't hunt newcomers).
 
@@ -109,7 +121,8 @@ and that `fly deploy` ran), `ROOM_CAP=40`, `MIN_POP=10`, `IDLE_MS=60000`.
 `net.js`: `lag=0.11`, prediction dead-zone 7 units, snap threshold 60 units, portal hold 0.35 s.
 
 `client.js`: `SERVER_URL='wss://centi-server.fly.dev'`, default `userZoom=.95` (persisted as
-`centi.zoom`), sinkhole horizon cull `+ .14` (was `.02`; Craig applies via sed — check it landed).
+`centi.zoom`), sinkhole horizon cull `+ .14` (was `.02`; Craig applies via sed — check it landed),
+`mouse.moved` gate — cursor steering is ignored until the mouse moves after a spawn (see 10 Sep pm).
 
 ---
 
@@ -136,23 +149,26 @@ macOS sed needs `sed -i ''`.
 
 ---
 
-## Open issues (as of 10 Sep)
+## Open issues (as of 10 Sep, evening)
 
-1. **Verify the latest round landed**: pellets vanish on touch, no sticky head at a pole, no dark
-   sinkhole cones on the horizon (client.js horizon sed), server at 20 Hz. Use Claude in Chrome.
-2. **"Killed before you hit the sinkhole"** — the kill radius (8.1) is inside the drawn rim (~10).
-   True in solo too. Fix: draw the rim at the kill radius, or make the kill radius match the rim.
-3. **Pale jelly along the player's own path** seen in screenshots — most likely leftover jelly from a
-   previous death/sever on the same route, but confirm it isn't a spurious sever/death on the server
-   (watch `ev` messages for `jellyAdd` with the player's colour while alive).
-4. **Body pass-through with other players** — inherent to prediction + lag; reduced by 20 Hz / 0.11 s.
+1. **Verify two fixes landed** (Craig applies both via sed, see session log):
+   - *stale-cursor spawn turn* — client.js, `grep -c "mouse.moved" client.js` → 7, hard-reload.
+   - *sinkhole kill radius* — sim.js, `grep -c "HOLE_R \* .9" sim.js` → 0, then `fly deploy`.
+2. **Verify the earlier round**: pellets vanish on touch, no sticky head at a pole, no dark sinkhole
+   cones on the horizon, server at 20 Hz (`grep SNAP_HZ server.js`).
+3. **"Connecting…" freeze** before an online run: your parked centipede is shown but can't move until
+   the server's `full` arrives, and the Fly machine can take seconds to wake. Fix is infra
+   (`min_machines_running = 1` in `fly.toml` while there are testers) or UX (keep the menu card up
+   until `onOpen`).
+4. **Pale jelly along the player's own path** — most likely leftover jelly from a previous death/sever
+   on the same route, but confirm it isn't a spurious sever/death on the server (watch `ev` messages
+   for `jellyAdd` with the player's colour while alive).
+5. **Body pass-through with other players** — inherent to prediction + lag; reduced by 20 Hz / 0.11 s.
    If still bad, consider server-side lag compensation for head-vs-body checks.
-5. **Not yet tested with two real humans on the same globe.**
-6. **Mobile / cellular** online play untested.
-7. **Fly machine wake-up** delay on first connect; `min_machines_running = 1` when there are testers.
+6. **Not yet tested with two real humans on the same globe.** (A test client from this session joined a
+   room with 7 bots and no Craig — check `pickRoom` puts humans together rather than opening new rooms.)
+7. **Mobile / cellular** online play untested.
 8. **iMessage preview** shows favicon instead of og.png — likely cached from before HTTPS worked.
-
----
 
 ## Roadmap (agreed order)
 
@@ -194,3 +210,13 @@ conversion), portal camera glitch (snap on the right frame). Default zoom widene
 **10 Sep:** screenshots confirmed the sinkhole-shaft artifact (horizon cull tightened); optimistic
 pellet eating; bounded portal hold (sticky head at a pole); 20 Hz snapshots + 0.11 s lag (Craig
 applied). Handoff updated to lead with the Claude-in-Chrome workflow.
+
+**10 Sep (pm):** Craig reported "head bent left and sticky as soon as I started" online. Diagnosis from
+the code (the live tab was owned by the side-panel Claude): the cursor is still where *Play online* was
+clicked; online you spawn at a random point, the camera snaps there with an arbitrary roll, and
+follow-cursor steering yanks you toward the stale cursor until the heading lines up (in solo the spawn is
+under the menu camera, so it doesn't show). The client also sends that steer to the server before `full`
+arrives. Fix: `mouse.moved` flag — set false in `goOnline`, `startRun` and both respawn buttons, set true
+in `pointermove`, required by the `mouseSteer()` call. Client-only. The "sticky" part is the
+Connecting… freeze (issue 3). Also handed Craig the sinkhole fix: kill at `HOLE_R` (9, the shaft edge)
+instead of `HOLE_R * .9` (8.1) in `sim.js` `inHole` and the pull inner radius — server change.
