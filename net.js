@@ -12,7 +12,7 @@
       this.ws = null; this.id = null; this.ready = false; this.cancelled = false;
       this.timeoutMs = this.opts.timeoutMs || 9000;   // the machine may be asleep; wait, but not forever
       this.timer = null;
-      this.lag = 0.12;                 // render this far behind the server so gaps are covered
+      this.lag = 0.22;                 // render this far behind the server: ~2 snapshots, so there is always a pair to interpolate between
       this.serverT = 0; this.renderT = 0;
       this.buffer = new Map();         // snake id -> [{t, p, h, len}] recent server positions
       this.onEvents = this.opts.onEvents || (() => {});
@@ -102,14 +102,20 @@
     // called every frame: move each snake along its buffered server positions and rebuild its trail
     interpolate(dtReal) {
       if (!this.ready) return;
-      this.renderT = Math.min(this.renderT + dtReal, this.serverT);      // never render ahead of the server
-      if (this.serverT - this.renderT > this.lag * 3) this.renderT = this.serverT - this.lag;   // fell behind: catch up
+      // Keep the render clock about `lag` behind the server. Clamping it to serverT instead pins us to
+      // the newest snapshot, which means no interpolation at all: heads then jump ten times a second
+      // and every centipede appears to wobble from side to side.
+      const target = this.serverT - this.lag;
+      const drift = target - this.renderT;
+      if (Math.abs(drift) > this.lag * 3) this.renderT = target;                                  // way out of step: resync
+      else this.renderT += dtReal * (1 + Math.max(-.2, Math.min(.2, drift * 1.5)));               // else run slightly fast or slow
       for (const sn of this.world.snakes) {
         if (!sn.alive) continue;
         const buf = this.buffer.get(sn.id);
         if (!buf || !buf.length) continue;
         let a = buf[0], b = buf[buf.length - 1];
         for (let i = 0; i < buf.length - 1; i++) if (buf[i].t <= this.renderT && buf[i + 1].t >= this.renderT) { a = buf[i]; b = buf[i + 1]; break; }
+        if (this.renderT <= buf[0].t) { a = buf[0]; b = buf[Math.min(1, buf.length - 1)]; }        // just joined: hold at the oldest sample
         const span = b.t - a.t;
         const u = span > 1e-6 ? Math.min(1, Math.max(0, (this.renderT - a.t) / span)) : 1;
         sn.p.copy(a.p).lerp(b.p, u).normalize();
