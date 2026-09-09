@@ -7,7 +7,7 @@ const { World, C, PRESETS, lookFrom, BOT_DEFS } = require('./sim.js');
 
 const PORT = process.env.PORT || 8080;
 const TICK = 1 / 20;                 // 20 simulation steps a second
-const SNAP_HZ = 10;                  // snapshots to clients per second
+const SNAP_HZ = 20;                  // snapshots to clients per second
 const ROOM_CAP = 40;                 // humans per globe
 const MIN_POP = 10;                  // keep this many centipedes alive in total, bots making up the difference
 const IDLE_MS = 60000;               // close an empty room after a minute

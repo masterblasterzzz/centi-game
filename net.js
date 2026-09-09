@@ -12,7 +12,7 @@
       this.ws = null; this.id = null; this.ready = false; this.cancelled = false;
       this.timeoutMs = this.opts.timeoutMs || 9000;   // the machine may be asleep; wait, but not forever
       this.timer = null;
-      this.lag = 0.18;                 // others are drawn this far behind the server, so there is always a pair of samples to blend between
+      this.lag = 0.11;                 // others are drawn this far behind the server, so there is always a pair of samples to blend between
       this.serverT = 0; this.renderT = 0;
       this.buffer = new Map();         // snake id -> [{t, p, h, len}] recent server positions
       this.lastInput = { steer: 0, boost: false };

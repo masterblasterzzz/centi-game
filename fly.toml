@@ -1,25 +1,29 @@
-# centi.gg game server — one small machine in Sydney.
-app = "centi-server"
-primary_region = "syd"
+# fly.toml app configuration file generated for centi-server on 2026-09-08T14:07:41+12:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'centi-server'
+primary_region = 'syd'
 
 [build]
-
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "suspend"     # sleeps when nobody is playing
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
+
+[checks]
+  [checks.health]
+    type = 'http'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'get'
+    path = '/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
-
-[checks.health]
-  type = "http"
-  grace_period = "10s"
-  interval = "30s"
-  timeout = "5s"
-  method = "get"
-  path = "/health"
+  size = 'shared-cpu-1x'
+  memory = '512mb'
