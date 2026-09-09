@@ -1,11 +1,35 @@
 # centi.gg — Handoff
 
-**Date:** 9 September 2026
+**Date:** 10 September 2026
 **Owner:** Craig Muirhead (New Zealand)
 **Live:** https://centi.gg (HTTPS, certificate issued, Enforce HTTPS on)
 **Repo:** github.com/masterblasterzzz/centi-game (public, `main`, GitHub Pages from root)
 **Server:** https://centi-server.fly.dev (Fly.io, region `syd`, app `centi-server`)
 **Analytics:** PostHog US cloud, https://us.posthog.com
+
+---
+
+## How to work on this with Craig — READ FIRST
+
+**Craig has Claude in Chrome installed and set up, and we have used it together before.**
+Use it. It is the right tool for this project: the game is a live 3D page with a network layer,
+and photos of a monitor are a poor substitute for seeing the tab.
+
+Working loop that suits him:
+
+1. Open centi.gg in Chrome via the extension, hard-reload (Cmd+Shift+R — Pages caches scripts
+   for ~10 min and this has bitten us every single time), and watch him play.
+2. Read the console for errors; use `read_page` / `javascript_tool` to inspect live state:
+   `net` (the CentiNet instance), `net.serverT`, `net.renderT`, `world.snakes`, `me()`.
+3. Reproduce what he describes before changing code. Several "bugs" this week were browser cache.
+4. Fix in the smallest file possible. `net.js` (13 KB) and `sim.js` (22 KB) are cheap to push;
+   `client.js` (52 KB) is expensive — give Craig a `sed` one-liner to run locally for one-line
+   changes there instead of re-pushing the whole file.
+5. Every server-side change (`server.js`, `sim.js`) needs Craig to run
+   `cd ~/centi-game && git pull && fly deploy`. Client-only changes just need a hard-reload.
+
+Craig is direct, ADHD/dyslexic, prefers short messages and honest pushback, and is comfortable in
+Terminal (zsh on an iMac). He types in caps a lot; it's not shouting.
 
 ---
 
@@ -24,17 +48,17 @@ Built in three.js r128 from CDN. No build step, no framework.
 
 | File | Role |
 |---|---|
-| `index.html` | Shell: head/SEO metadata, CSS, menu markup, PostHog snippet, loads the three scripts |
+| `index.html` | Shell: head/SEO metadata, CSS, menu markup, PostHog snippet, "× Back to the menu" escape, loads the three scripts |
 | `sim.js` | **The rules.** Movement on the sphere, bots, food, jelly, portals, hazards, collisions. Runs in browser (`window.CentiSim`) and Node (`module.exports`). The server and client share this file. |
-| `net.js` | Client network layer: WebSocket, mirrors the server world, interpolates other players, predicts own player |
+| `net.js` | Client network layer: WebSocket, mirrors the server world, interpolates other players, predicts own player, converts server time → browser time |
 | `client.js` | Rendering, input, sound, UI, camera, minimap, analytics events |
-| `server.js` | Authoritative server: rooms, 20 Hz tick, 10 Hz snapshots, bot top-up, sanitised names/looks |
+| `server.js` | Authoritative server: rooms, 20 Hz tick, snapshots, bot top-up, sanitised names/looks |
 | `fly.toml`, `Dockerfile`, `package.json`, `.dockerignore` | Fly.io deploy |
 | `DEPLOY.md` | Server deploy instructions |
 | `CNAME` | `centi.gg` for GitHub Pages |
 | `robots.txt`, `sitemap.xml`, `manifest.webmanifest`, `llms.txt` | SEO / AI-crawler / PWA |
 | `og.png`, `icon-512.png`, `icon-180.png` | Social card and icons (uploaded manually) |
-| `README.md` | Project readme |
+| `README.md`, `HANDOFF.md` | This file and the readme |
 
 ---
 
@@ -49,11 +73,20 @@ Built in three.js r128 from CDN. No build step, no framework.
 - **Client-side prediction for your own centipede** (`net.predictSelf`): runs the real rules locally
   from your input so steering is instant, then eases onto the server's extrapolated truth. Errors under
   7 units are ignored (correcting them caused wobble); over 60 units it snaps (portal jump, lag spike).
-- **Other players are interpolated** ~0.18 s behind the server so there's always a pair of snapshots
-  to blend between. The render clock runs slightly fast/slow to hold that gap — never clamped to server
-  time (that pinned it to the newest snapshot and caused the side-to-side wobble).
-- **Portal jumps online are the server's call.** The prediction holds you at the portal mouth until the
-  server's snapshot shows you at the far pole, then snaps once. Jumping locally caused ping-pong.
+- **Other players are interpolated** `lag` seconds behind the server (currently 0.11 with 20 Hz
+  snapshots; must be ≥ ~1.5 snapshot intervals). The render clock runs slightly fast/slow to hold that
+  gap — never clamped to server time (that pinned it to the newest snapshot and caused wobble).
+- **Every server timestamp is converted to browser time on arrival** (`local()` in `net.handle`).
+  The server clock counts from room creation; the browser's from page load. Missing this hid all the
+  food online. Any new server-sent time must go through `local()`.
+- **Portal jumps online are the server's call.** The prediction holds you just inside the ring
+  (`PORTAL_R - 1.5`) for at most 0.35 s until the server's snapshot shows you at the far pole, then
+  snaps once and fires the client's `portal` event itself (camera snap + sound on the right frame).
+  The server's own `portal` event for you is filtered out. Jumping locally caused ping-pong; an
+  unbounded hold caused a sticky head when the server's copy grazed the ring and missed.
+- **Pellets are eaten optimistically**: the client hides a pellet the moment your predicted head touches
+  it (`respawnAt = now + 0.7`); the server's `food` event overwrites with the real respawn time, or the
+  pellet comes back. Waiting for the server made pellets vanish from under your body or not at all.
 - **Views are bound to snake objects, not ids.** Local and server worlds both number snakes `s1, s2…`;
   when the server world replaces the local one, views must be rebuilt (`syncViews` checks `s !== v.snake`).
   Forgetting this made your own centipede invisible online.
@@ -63,18 +96,20 @@ Built in three.js r128 from CDN. No build step, no framework.
 
 ---
 
-## Key constants (`sim.js` → `C`)
+## Key constants
 
-`R=340` globe radius · `SEG=2.1` · `MAX_SEG=1600` · `BASE_SPEED=48` · `TURN=4` (turn radius ≈ 12) ·
-`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` · `STORM_N=2, STORM_R=22` ·
-`PORTAL_R=12`, cycles `[20 open/8 closed]` and `[18/10, phase 13]` · `GRACE_LEN=30, GRACE_SECS=20`
-(bots don't hunt newcomers).
+`sim.js` → `C`: `R=340` · `SEG=2.1` · `MAX_SEG=1600` · `BASE_SPEED=48` · `TURN=4` (turn radius ≈ 12) ·
+`STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius `HOLE_R*.9`) ·
+`STORM_N=2, STORM_R=22` · `PORTAL_R=12`, cycles `[20 open/8 closed]` and `[18/10, phase 13]` ·
+`GRACE_LEN=30, GRACE_SECS=20` (bots don't hunt newcomers).
 
-Server (`server.js`): `TICK=1/20`, `SNAP_HZ=10`, `ROOM_CAP=40`, `MIN_POP=10` (bots top up to this),
-`IDLE_MS=60000` (empty room closes).
+`server.js`: `TICK=1/20`, `SNAP_HZ=20` (Craig changed from 10 — verify with `grep SNAP_HZ server.js`
+and that `fly deploy` ran), `ROOM_CAP=40`, `MIN_POP=10`, `IDLE_MS=60000`.
 
-Client (`client.js`): `SERVER_URL='wss://centi-server.fly.dev'`, default `userZoom=.95` (persisted in
-localStorage as `centi.zoom`).
+`net.js`: `lag=0.11`, prediction dead-zone 7 units, snap threshold 60 units, portal hold 0.35 s.
+
+`client.js`: `SERVER_URL='wss://centi-server.fly.dev'`, default `userZoom=.95` (persisted as
+`centi.zoom`), sinkhole horizon cull `+ .14` (was `.02`; Craig applies via sed — check it landed).
 
 ---
 
@@ -82,12 +117,12 @@ localStorage as `centi.zoom`).
 
 | Thing | State |
 |---|---|
-| Domain centi.gg | Bought at Porkbun. 4 A records → GitHub Pages IPs, `www` CNAME → masterblasterzzz.github.io, Google TXT verification |
-| HTTPS | Certificate finally issued after ~24 h (GitHub-side delay, not a config problem). Enforce HTTPS ticked |
-| GitHub Pages | Deploys from `main` root. Custom domain set. Browser caches scripts ~10 min — **always Cmd+Shift+R after a push** |
-| Fly.io | Deployed from `~/centi-game` on Craig's iMac via `fly deploy`. Machines auto-suspend when idle and wake on connect (first connect can take a few seconds). `curl https://centi-server.fly.dev/health` → `{"ok":true,"rooms":N,"players":N}` |
-| Search Console | Domain property added and verified; sitemap submitted. Bing: import from GSC (may not be done yet) |
-| PostHog | Events: `run_start` (mode solo/online), `run_end` (reason, killer, length, kills, seconds, portals), `kill`, `watch`, `share`, `online_failed`. Billing cap should be set to $0 (check) |
+| Domain centi.gg | Porkbun. 4 A records → GitHub Pages IPs, `www` CNAME → masterblasterzzz.github.io, Google TXT verification |
+| HTTPS | Certificate issued after ~24 h (GitHub-side delay). Enforce HTTPS ticked |
+| GitHub Pages | Deploys from `main` root. Browser caches scripts ~10 min — **always Cmd+Shift+R after a push** |
+| Fly.io | Deployed from `~/centi-game` on Craig's iMac via `fly deploy`. Machines auto-suspend when idle and wake on connect. `curl https://centi-server.fly.dev/health` → `{"ok":true,"rooms":N,"players":N}` |
+| Search Console | Domain property verified; sitemap submitted. Bing: import from GSC (may not be done) |
+| PostHog | Events: `run_start` (mode), `run_end` (reason, killer, length, kills, seconds, portals), `kill`, `watch`, `share`, `online_failed` (reason). Billing cap should be $0 (check) |
 | Social card | og.png in repo. iMessage cached a broken preview from the cert-invalid period; test with `?v=N` |
 
 **Redeploying the server** (after changes to `server.js` or `sim.js`):
@@ -96,23 +131,26 @@ cd ~/centi-game && git pull && fly deploy
 ```
 The Docker image only copies `server.js` and `sim.js`.
 
-**Craig's terminal setup:** flyctl installed at `~/.fly/bin`, PATH added to `~/.zshrc`, logged in as
-transformer_film@xtra.co.nz.
+**Craig's terminal:** flyctl at `~/.fly/bin`, PATH in `~/.zshrc`, logged in as transformer_film@xtra.co.nz.
+macOS sed needs `sed -i ''`.
 
 ---
 
-## Open issues
+## Open issues (as of 10 Sep)
 
-1. **Visual artifacts** in some part of the globe — Craig saw them, no screenshot yet. Likely suspect:
-   sinkhole shafts (drawn with `depthTest:false`) punching through when the horizon cull in `drawHoles`
-   is off at certain camera angles. Need a screenshot + rough location (near pole / near a hole / ocean).
-2. **Portal hold duration** — just deployed; untested by Craig. Should read as a beat at the mouth.
-3. **Not yet tested with two real humans on the same globe.** This is the next thing to do.
-4. **Mobile / cellular** online play untested.
-5. **Fly machine wake-up** — first connect after idle can take several seconds; the 9 s timeout and
-   "× Back to the menu" button cover it. To remove the delay: `min_machines_running = 1` in fly.toml
-   (a few dollars/month). Do when there are testers.
-6. **iMessage preview** shows favicon instead of og.png — probably cached from before HTTPS worked.
+1. **Verify the latest round landed**: pellets vanish on touch, no sticky head at a pole, no dark
+   sinkhole cones on the horizon (client.js horizon sed), server at 20 Hz. Use Claude in Chrome.
+2. **"Killed before you hit the sinkhole"** — the kill radius (8.1) is inside the drawn rim (~10).
+   True in solo too. Fix: draw the rim at the kill radius, or make the kill radius match the rim.
+3. **Pale jelly along the player's own path** seen in screenshots — most likely leftover jelly from a
+   previous death/sever on the same route, but confirm it isn't a spurious sever/death on the server
+   (watch `ev` messages for `jellyAdd` with the player's colour while alive).
+4. **Body pass-through with other players** — inherent to prediction + lag; reduced by 20 Hz / 0.11 s.
+   If still bad, consider server-side lag compensation for head-vs-body checks.
+5. **Not yet tested with two real humans on the same globe.**
+6. **Mobile / cellular** online play untested.
+7. **Fly machine wake-up** delay on first connect; `min_machines_running = 1` when there are testers.
+8. **iMessage preview** shows favicon instead of og.png — likely cached from before HTTPS worked.
 
 ---
 
@@ -120,16 +158,16 @@ transformer_film@xtra.co.nz.
 
 1. **Get 5 real testers on centi.gg online.** Watch PostHog: survival times, return visits, `online_failed` reasons.
 2. Fix whatever they hit. Balance from data, not guesses.
-3. **Promotion:** clips (Craig's strength — cinematic mode `V` exists for this), small/mid gaming
-   creators (10k–200k) with no ask, portal submissions (**CrazyGames, Poki** — they run ads and pay
-   rev share, biggest revenue lever at this stage), one coordinated Reddit + Show HN burst.
+3. **Promotion:** clips (Craig's strength — cinematic mode `V`), small/mid gaming creators (10k–200k)
+   with no ask, portal submissions (**CrazyGames, Poki** — they run ads and pay rev share, biggest
+   revenue lever at this stage), one coordinated Reddit + Show HN burst.
 4. **Revenue:** one rewarded video on the death screen ("watch to respawn at half length") — the only
    ad on centi.gg itself. No banners. Cosmetics (skins, trails, name colour) after multiplayer is proven;
    needs accounts + Stripe. Later: a supporter purchase that removes ads.
-5. **Rocket with an advertising banner crossing the sky** — Craig's idea, agreed it's better than
-   billboards on the terrain (off the playfield, charming even with no sponsor). Build after there are
-   players; use it for self-promotion first.
-6. Cloudflare in front of Pages when traffic warrants (DDoS + caching). Not needed for HTTPS any more.
+5. **Rocket towing an advertising banner across the sky** — Craig's idea; better than billboards on the
+   terrain (off the playfield, charming even with no sponsor). Build after there are players; use it
+   for self-promotion first.
+6. Cloudflare in front of Pages when traffic warrants (DDoS + caching).
 7. Touch follow-finger steering (currently left/right halves).
 8. Search Console / Bing check-in once indexed.
 
@@ -143,13 +181,16 @@ transformer_film@xtra.co.nz.
 
 ---
 
-## Session log (this stretch)
+## Session log
 
-- Fixed menu camera spin (three attempts; final answer: fixed camera, no follow, live world behind)
-- Domain, DNS, HTTPS, Search Console, sitemap, SEO/AEO metadata, JSON-LD (VideoGame + FAQ), llms.txt
-- Split sim from render → `sim.js` + `client.js`; proved headless in Node
-- Built and deployed the Fly.io server; client network layer; Play online button
-- Fixed: stuck-on-Connecting (timeout + escape button), invisible own centipede (stale views),
-  side-to-side wobble (render clock), zig-zag steering (client prediction), portal ping-pong
-  (server-authoritative portal with hold), portal rings not cycling online
-- Default zoom widened and persisted
+**8–9 Sep:** menu camera spin fixed (fixed camera, live world behind); domain, DNS, HTTPS, Search
+Console, sitemap, SEO/AEO metadata, JSON-LD, llms.txt; sim/render split (`sim.js` + `client.js`),
+proved headless in Node; Fly.io server built and deployed; client network layer; Play online.
+Fixed: stuck-on-Connecting (timeout + escape button), invisible own centipede (stale views),
+side-to-side wobble (render clock), zig-zag steering (client prediction), portal ping-pong
+(server-authoritative portal), portal rings not cycling online, no food online (server→browser time
+conversion), portal camera glitch (snap on the right frame). Default zoom widened and persisted.
+
+**10 Sep:** screenshots confirmed the sinkhole-shaft artifact (horizon cull tightened); optimistic
+pellet eating; bounded portal hold (sticky head at a pole); 20 Hz snapshots + 0.11 s lag (Craig
+applied). Handoff updated to lead with the Claude-in-Chrome workflow.
