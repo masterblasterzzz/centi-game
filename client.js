@@ -461,7 +461,7 @@ function netStatus(msg) { const el = document.getElementById('netstatus'); el.te
 
 function startRun() {
   const t = now();
-  if (online) goSolo();
+  if (online || !world.snakes.includes(player)) goSolo();
   attract = false; player.ghost = false; mouse.moved = false; document.body.classList.remove('menu');
   player.spawn(START_POS, t);
   bots.forEach(b => b.spawn(world.spawnAway(t, player.p), t));
@@ -488,7 +488,7 @@ function gameOver(title) {
 // the menu: your centipede parks at the spawn point under a fixed camera while the rest of the world carries on around it
 function showStart() {
   stopWatching(); overEl.classList.remove('on'); startEl.classList.add('on'); document.body.classList.add('menu');
-  if (online) goSolo();
+  if (online || !world.snakes.includes(player)) goSolo();
   const t = now();
   attract = true; paused = false; gameOverFlag = false; killcam = null;
   player.spawn(START_POS, t); player.ghost = true;
