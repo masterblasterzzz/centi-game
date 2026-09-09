@@ -47,12 +47,16 @@
     handle(m) {
       const w = this.world;
       if (m.type === 'welcome') { this.id = m.id; return; }
+      // The server's clock counts from when its room was made; the browser's from page load. Every
+      // timestamp the server sends is converted to browser time here, or food shows as "not respawned
+      // yet" for ever and sinkholes animate from the wrong moment.
+      const local = st => performance.now() / 1000 + (st - m.t);
       if (m.type === 'full') {
         this.serverT = m.t; this.renderT = m.t - this.lag;
-        m.food.forEach((f, i) => { const dst = w.food[i]; if (!dst) return; dst.p.copy(v3(f.p)); dst.boost = f.b; dst.colorIdx = f.c; dst.respawnAt = f.r; });
+        m.food.forEach((f, i) => { const dst = w.food[i]; if (!dst) return; dst.p.copy(v3(f.p)); dst.boost = f.b; dst.colorIdx = f.c; dst.respawnAt = local(f.r); });
         w.jelly.length = 0;
         for (const j of m.jelly) w.jelly.push({ id: j.id, p: v3(j.p), until: 1e9, ph: j.ph, color: j.c });
-        m.holes.forEach((h, i) => { const dst = w.holes[i]; if (!dst) return; dst.n.copy(v3(h.n)); dst.state = h.s; dst.t0 = h.t0; });
+        m.holes.forEach((h, i) => { const dst = w.holes[i]; if (!dst) return; dst.n.copy(v3(h.n)); dst.state = h.s; dst.t0 = local(h.t0); });
         m.storms.forEach((s, i) => { if (w.storms[i]) w.storms[i].p.copy(v3(s.p)); });
         for (const s of w.snakes.slice()) w.removeSnake(s.id);
         this.buffer.clear();
@@ -82,7 +86,11 @@
         for (const sn of w.snakes) if (sn.alive && !live.has(sn.id)) sn.alive = false;   // died between events
         return;
       }
-      if (m.type === 'ev') { this.applyEvents(m.events); this.onEvents(m.events); return; }
+      if (m.type === 'ev') {
+        for (const e of m.events) { if (e.type === 'hole') e.t0 = local(e.t0); if (e.type === 'food') e.r = local(e.r); }
+        const evs = m.events.filter(e => !(e.type === 'portal' && e.id === this.id));   // my own portal is announced when my position actually snaps (see predictSelf)
+        this.applyEvents(evs); this.onEvents(evs); return;
+      }
     }
     addSnake(s) {
       const w = this.world;
@@ -169,7 +177,11 @@
       axis.normalize();
       const target = s.p.clone().applyAxisAngle(axis, (s.speed || C.BASE_SPEED) * age / C.R).normalize();
       const err = sn.p.angleTo(target) * C.R;
-      if (err > 60) { sn.p.copy(target); sn.h.copy(s.h); sn.portalCooldown = 2.5; sn.record(); }   // out of step (portal jump, lag spike): take the server's word
+      if (err > 60) {                                                    // out of step (portal jump, lag spike): take the server's word
+        const portal = sn.p.angleTo(target) > 2.6;                        // near-antipodal = a portal jump, not a lag spike
+        sn.p.copy(target); sn.h.copy(s.h); sn.record();
+        if (portal) { sn.portalCooldown = 2.5; this.onEvents([{ type: 'portal', id: this.id }]); }   // snap the camera and play the sound now, not 100 ms early
+      }
       else if (err > 7) sn.p.lerp(target, Math.min(1, dtReal * 1.2)).normalize();   // real drift: ease onto it
       // under 7 units: prediction and server agree; leave it alone
       sn.h.sub(new THREE.Vector3().copy(sn.p).multiplyScalar(sn.h.dot(sn.p)));
