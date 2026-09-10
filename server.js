@@ -91,11 +91,12 @@ class Room {
     return {
       type: 'snap', t: this.t,
       storms: w.storms.map(s => r3(s.p)),
-      snakes: w.snakes.filter(s => s.alive).map(s => [s.id, r3(s.p), r3(s.h), Math.round(s.curLen * 10) / 10]),
+      snakes: w.snakes.filter(s => s.alive).map(s => [s.id, r3(s.p), r3(s.h), Math.round(s.curLen * 10) / 10, s.appliedSeq || 0]),
     };
   }
   step(dt) {
     this.t += dt;
+    for (const sn of this.clients.values()) sn.appliedSeq = sn.input.seq || 0;   // the input this tick is about to use
     const events = this.world.step(dt, this.t);
     if (events.length) this.broadcast({ type: 'ev', t: this.t, events: events.map(e => this.packEvent(e)) });
   }
@@ -148,6 +149,7 @@ wss.on('connection', ws => {
     } else if (m.type === 'in' && snake) {
       snake.input.steer = clamp(+m.s || 0, -1, 1);
       snake.input.boost = !!m.b;
+      snake.input.seq = m.q | 0;          // client numbers its inputs; echoed back so it can reconcile like for like
     } else if (m.type === 'respawn' && room && snake && !snake.alive) {
       snake.spawn(room.world.spawnAway(room.t, (room.world.humans().find(h => h !== snake) || {}).p), room.t);
       room.broadcast({ type: 'ev', t: room.t, events: [{ type: 'spawn', id: snake.id, snake: room.snakeFull(snake) }] });
