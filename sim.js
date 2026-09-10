@@ -92,7 +92,7 @@
     spawn(pos, t) {
       this.p.copy(pos); this.h.copy(tangentAt(this.p));
       this.trail.length = 0; this.trail.push(this.p.clone());
-      this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false;
+      this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false; this.boostDebt = 0;
       this.alive = true; this.portalCooldown = 0; this.spawnedAt = t;
       this.cutPoint = null; this.pendingCut = false; this.cutPortal = -1; this.aiState = null;
     }
@@ -114,7 +114,9 @@
       const canBoost = boostIn && this.targetLen > 10;
       this.boost = canBoost;
       const speed = C.BASE_SPEED * this.speedMul * (canBoost ? 1.9 : 1);
-      if (canBoost) this.targetLen -= dt * 2.2;
+      // Boost costs 4% of your length a second (2.2 segments minimum) and the loss is dropped as jelly behind
+      // the tail in world.step, so a chaser gets fed. A flat 2.2 was 4x cheaper than slither.io at 200 and fed nobody.
+      if (canBoost) { const cost = dt * Math.max(2.2, this.targetLen * .04); this.targetLen -= cost; this.boostDebt = (this.boostDebt || 0) + cost; }
       const p = this.p, h = this.h;
       axis.crossVectors(p, h).normalize();
       p.applyAxisAngle(axis, speed * dt / R);
@@ -330,6 +332,7 @@
         if (sn.ghost) continue;
         const cmd = sn.isBot ? this.botThink(sn, t) : sn.input;
         if (sn.move(dt, cmd.steer, cmd.boost, this)) this.events.push({ type: 'portal', id: sn.id });
+        if (sn.boostDebt >= 2) { sn.boostDebt -= 2; this.dropJellyPoints([sn.trail[0]], sn.look.a, t); }   // one jelly (worth 2) per 2 length boosted away
       }
       this.updateHoles(t, dt);
       this.updateStorms(t, dt);
