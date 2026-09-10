@@ -107,5 +107,58 @@ never decode their packets. Same rule as not lifting code.
 What it gave us (slither.io): ~70 server packets/s of median 6 bytes (~1.2 KB/s) as per-entity
 deltas; client input 18.5/s, 1 byte, sent on change; corpse orbs on the death frame; no zoom-out until
 ~200 length; boosting doubles speed and turn radius, not turn rate. Full table in `HANDOFF.md`.
-Engine: delta snapshots and input-on-change belong in the net layer's defaults; the design targets
-above are the bar for "feels like a real .io game".
+Engine: delta snapshots belong in the net layer's defaults, and so does input-on-change — but only
+with time-stamped inputs. With frame-numbered inputs (what centi.gg's reconciliation uses), dropping
+unchanged frames leaves the server holding a stale `q` while the client's counter runs ahead, and
+every snapshot reconciles against a ~100 ms-old frame (~5 units): the wobble comes back. Rejected for
+centi.gg on 11 Sep for that reason; the design targets above are the bar for "feels like a real .io game".
+
+## Costs should become opportunities for other players (11 Sep 2026)
+
+Rule: when a mechanic charges the player (boost, teleport, damage), the thing they lose goes back
+into the world where someone else can take it.
+Why: centi.gg's boost cost was a flat 2.2 length/s that vanished — ~4× cheaper than slither.io at
+length 200 (measured ~9/s there, dropped as orbs behind the tail) and it fed nobody, so chasing a
+booster was never worth it. Now `max(2.2, 4 %/s)`, each 2 length lost becomes one jelly at the tail.
+Dropped in `world.step`, never inside `Snake.move`, so client prediction (which also calls `move`)
+cannot spawn jelly of its own. Headless: 10 s at 200 → 38 jelly, none self-eaten.
+Engine: side effects that create world objects live in the world tick, not in per-entity movement.
+
+## Visuals and rules share one constant (10 Sep 2026)
+
+Rule: the renderer reads every radius, speed and threshold from the sim's constants table; it never
+carries its own numbers.
+Why: the sinkhole rim was drawn at radius 9 with a 1.3 tube (outer edge ≈ 10.3) while the kill check
+used 9 × 0.9 = 8.1 → "killed before I hit the sinkhole". Fixed by killing at the drawn edge.
+
+## Input must not survive a scene change (10 Sep 2026)
+
+Rule: reset input state on every spawn and require fresh input before acting on it.
+Why: the cursor position from the *Play online* click was still live when the camera snapped to a
+random spawn point with an arbitrary roll; follow-cursor steering yanked the centipede into a turn on
+frame one ("head bent left as soon as I started"). Solo never showed it because the spawn sits under
+the menu camera. Fix: `mouse.moved`, cleared in `goOnline`, `startRun` and both respawn paths.
+
+## Spend the spec on architecture, not features (from Roger Torres, "Building a Multiplayer Risk Game with Claude")
+
+Rule: the architecture doc — single source of truth for live state, one broadcast path, who owns which
+cache, pure state transitions — is written *before* the first feature, and every bug caused by a missing
+rule is added back to it as a rule plus the failure it prevents.
+Why: Torres's domain logic (rules, state machine) worked first time in ~200 lines; his real-time sync
+layer took ~800 and broke in production with a second human — projections used as live state, async
+double-apply, a race in his event stream. Claude knew the rules of Risk; it could not infer his cache
+coherence. centi.gg's own history is the same 200/800 split: every fix on 8–11 Sep was in the sync
+layer, none in the rules. His other lessons we already follow: pure sim (no `Date.now()` inside state
+transitions), one truth path (server world → `snap`/`ev` → the same objects the renderer draws), and
+testing with two clients from hour one — the last of which centi.gg has **still not done** (HANDOFF
+open issue 6).
+Engine: `ARCHITECTURE.md` is a required file in every game template and its "don't undo these" list is
+seeded from `HANDOFF.md`'s.
+
+## Two Claude sessions, one repo (10–11 Sep 2026)
+
+Rule: only one Claude can hold the Chrome extension; the side-panel session watches the live tab and
+measures, the Cowork session reads code and writes fixes and docs. They cannot see each other's chats —
+the repo (`HANDOFF.md`, this file) and the GitHub commit log are the only shared memory, so every
+session `git pull`s (or re-fetches the file SHA) before editing and writes its findings down before
+stopping. A hidden Chrome tab renders zero frames, so any live reading from a background tab is junk.
