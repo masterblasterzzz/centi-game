@@ -86,6 +86,11 @@ Built in three.js r128 from CDN. No build step, no framework.
   trail at fixed arc length `SEG`. Lat/lon has pole singularities; this doesn't.
 - **Sim/render split.** `sim.js` has no rendering dependencies. The server runs it headless in Node.
   A minute of nine bots simulates in ~1 s (60× realtime), so a server tick is cheap.
+- **`Snake.move` integrates in ≤ 1/60 s slices** (`moveStep`, 11 Sep, `9739b87`). The server's 50 ms tick is
+  three identical slices, so server and client trace the same arc in a turn. With one Euler step per call
+  they drifted ~1.2 units/s apart and reconciliation kept correcting it — Craig saw it as the head
+  "swaying side to side like a snake" (measured: sideways nudges of 1.2–1.5 units about twice a second,
+  each fading over ~20 frames). Headless: jitter 0.037 → 0.013, server-vs-seen 1.42 → 0.88.
 - **Server is authoritative.** Clients send only steering + boost. Nobody can cheat by editing their browser.
 - **Client-side prediction with numbered inputs and replay** (`net.predictSelf` / `net.reconcile`, 11 Sep).
   A scratch `CentiSim.Snake` (`net.pred`) runs the real rules from your input every frame; each input
@@ -137,7 +142,8 @@ Built in three.js r128 from CDN. No build step, no framework.
 `sim.js` → `C`: `R=340` · `SEG=2.1` · `MAX_SEG=1600` · `BASE_SPEED=48` · `TURN=4` (turn radius ≈ 12) ·
 `STEER_EASE=7` · `HIT_R=3.1` · `FOOD_N=250` (10 boost) · `HOLE_N=10, HOLE_R=9` (kill radius = `HOLE_R`, the drawn shaft edge; was `HOLE_R*.9` until 10 Sep) ·
 `STORM_N=2, STORM_R=22` · `PORTAL_R=12`, cycles `[20 open/8 closed]` and `[18/10, phase 13]` ·
-`GRACE_LEN=30, GRACE_SECS=20` (bots don't hunt newcomers).
+`GRACE_LEN=30, GRACE_SECS=20` (bots don't hunt newcomers) · boost cost `max(2.2, targetLen*.04)`/s, dropped as one
+jelly (worth 2) per 2 length at `trail[0]` in `world.step` (11 Sep; was a flat 2.2/s that vanished).
 
 `server.js`: `TICK=1/20`, `SNAP_HZ=20` (Craig changed from 10 — verify with `grep SNAP_HZ server.js`
 and that `fly deploy` ran), `ROOM_CAP=40`, `MIN_POP=10`, `IDLE_MS=60000`.
@@ -175,6 +181,13 @@ macOS sed needs `sed -i ''`.
 
 ## Open issues (as of 11 Sep, early)
 
+0. **Play-test the sub-stepping sway fix** (`9739b87` + re-merge `7ffd125`, `sim.js`; same deploy as the
+   boost cost). The side-panel Claude measures the sideways component of `net.vis` — was 0.49 units
+   average with 1.2–1.5 unit pulses; expect < 0.2 and no pulses.
+0. **Play-test the boost cost** (commit `9a70929`, re-applied in `7ffd125`; needs `git pull && fly deploy` + hard reload).
+   Expect: holding boost leaves a line of your own-colour jelly behind the tail; a 200-long centipede
+   loses ~8/s instead of 2.2/s. Watch that no jelly appears *under* the head (would mean the client is
+   dropping its own) and that bots boosting near you leave jelly too.
 1. **Play-test the replay reconciliation** (commit `29c94c3`, `net.js` + `server.js`; needs `git pull &&
    fly deploy` and a hard reload). Expect: circling feels like solo, no sideways tug, deaths happen where
    the head is on screen. Measure live with the side-panel Claude: frames with a correction, size of
@@ -227,11 +240,16 @@ WebSocket wrapper and screenshots only. **No code read, no packet contents decod
 | Client → server | on mouse change only: 18.5/s, **1 byte** each, median gap 33 ms | every frame, JSON, 60/s |
 | Death → corpse orbs | same frame as the death; "Play again" card ≥0.4 s later; socket closed ~2 s after that | jelly drops on the server's `death` event |
 | Zoom vs length | no visible zoom-out below ~200; ~0.85× by ~400 (hex cell 94 px → 80 px) | continuous scale with size |
-| Turning while boosting | angular rate unchanged, speed ×2 → circle radius ×2 (120 px → 260 px); costs ~9 length/s, dropped as orbs behind you | boost ×1.9 speed, same `TURN` (already the same model) |
+| Turning while boosting | angular rate unchanged, speed ×2 → circle radius ×2 (120 px → 260 px); costs ~9 length/s, dropped as orbs behind you | boost ×1.9 speed, same `TURN` (already the same model); cost now 4 %/s min 2.2, dropped as jelly (11 Sep) |
 | Other snakes on screen | 1–4 at a time, typically 2–3 | 9 bots + humans, all sent every snapshot |
 
-Ideas this suggests (not decided): delta snapshots (only heads that moved, binary), input-on-change,
-drop jelly on the same frame as the client's death animation, hold the zoom until ~200 segments.
+Ideas this suggests (not decided): delta snapshots (only heads that moved, binary), drop jelly on the
+same frame as the client's death animation, hold the zoom until ~200 segments. **Input-on-change was
+looked at and rejected for now:** the replay reconciliation compares the server's `appliedSeq` with the
+client's history entry for that same frame; if the client stops sending unchanged inputs, the server
+holds a stale `q` for up to the keep-alive interval while the client's counter runs ahead, and every
+snapshot then reconciles against a ~100 ms-old frame (~5 units) — the wobble comes back. Doing it
+properly means time-stamped inputs, not frame-numbered; saving is only ~1.5 KB/s up per player.
 
 ## Legal notes
 
@@ -280,3 +298,19 @@ numbered inputs + replay reconciliation with a fading visual offset (`net.js`), 
 (`29c94c3`). Console "AudioContext was not allowed to start" lines come from the Claude extension's
 own script, not the game; the `/health` CORS error was our probe. Then benchmarked slither.io from the
 outside (table above).
+
+**11 Sep (early), side-panel Claude:** live numbers after the reconciliation deploy: server-vs-seen at the
+same input 0.42 units avg (was 6.9), p95 1.5, one 12.7 spike in 30 s; 60 fps. Craig: "feels much better",
+but the head sways side to side. Cause: 20 Hz vs 60 Hz Euler steps (above); fix pushed as `9739b87`.
+**Process failure to not repeat:** this session pushed whole files (`sim.js`, `HANDOFF.md`) from copies
+fetched before the Cowork session's `9a70929`/`87b6421`, clobbering the boost-cost change and its notes;
+re-merged in the next commit. Rule: re-fetch from `main` immediately before every whole-file push, and
+keep pushes to one file per commit.
+
+**11 Sep (early), Cowork session (code side):** applied the slither.io boost benchmark: boost now costs
+`max(2.2, 4 %/s)` of length and each 2 length lost becomes one jelly at the tail, dropped in `world.step`
+(never in `Snake.move`, so client prediction can't create jelly of its own). Headless: 10 s of boost at
+200 → 38 jelly, none self-eaten, boost still cuts out at 10. Pushed as `9a70929`; play-test pending
+(open issue 0). Input-on-change rejected (see benchmarks). Lessons doc in the Claude project
+(`claude/lessons-for-the-game-engine.md`) now carries the Torres article mapping and the benchmark table;
+`centi-dev` skill saved in Craig's account.
