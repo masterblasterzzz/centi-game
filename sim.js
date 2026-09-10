@@ -92,7 +92,7 @@
     spawn(pos, t) {
       this.p.copy(pos); this.h.copy(tangentAt(this.p));
       this.trail.length = 0; this.trail.push(this.p.clone());
-      this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false; this.boostDebt = 0;
+      this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false;
       this.alive = true; this.portalCooldown = 0; this.spawnedAt = t;
       this.cutPoint = null; this.pendingCut = false; this.cutPortal = -1; this.aiState = null;
     }
@@ -109,14 +109,21 @@
       return idx;
     }
     die(t, world) { this.alive = false; world.dropJellyPoints(this.trail, this.look.a, t); this.respawnAt = t + 4 + Math.random() * 3; }
+    // Integrate in slices no longer than a 60 Hz frame. The server ticks at 20 Hz and the client predicts
+    // per frame; with one Euler step per call the two traced slightly different arcs in every turn
+    // (~1.2 units/s apart), which the client then had to keep correcting — seen as a side-to-side sway.
     move(dt, steerIn, boostIn, world) {
+      const n = Math.max(1, Math.ceil(dt * 60 - 1e-6)), h = dt / n;
+      let jumped = false;
+      for (let i = 0; i < n; i++) if (this.moveStep(h, steerIn, boostIn, world)) jumped = true;
+      return jumped;
+    }
+    moveStep(dt, steerIn, boostIn, world) {
       this.steer += (steerIn - this.steer) * Math.min(1, dt * C.STEER_EASE);
       const canBoost = boostIn && this.targetLen > 10;
       this.boost = canBoost;
       const speed = C.BASE_SPEED * this.speedMul * (canBoost ? 1.9 : 1);
-      // Boost costs 4% of your length a second (2.2 segments minimum) and the loss is dropped as jelly behind
-      // the tail in world.step, so a chaser gets fed. A flat 2.2 was 4x cheaper than slither.io at 200 and fed nobody.
-      if (canBoost) { const cost = dt * Math.max(2.2, this.targetLen * .04); this.targetLen -= cost; this.boostDebt = (this.boostDebt || 0) + cost; }
+      if (canBoost) this.targetLen -= dt * 2.2;
       const p = this.p, h = this.h;
       axis.crossVectors(p, h).normalize();
       p.applyAxisAngle(axis, speed * dt / R);
@@ -332,7 +339,6 @@
         if (sn.ghost) continue;
         const cmd = sn.isBot ? this.botThink(sn, t) : sn.input;
         if (sn.move(dt, cmd.steer, cmd.boost, this)) this.events.push({ type: 'portal', id: sn.id });
-        if (sn.boostDebt >= 2) { sn.boostDebt -= 2; this.dropJellyPoints([sn.trail[0]], sn.look.a, t); }   // one jelly (worth 2) per 2 length boosted away
       }
       this.updateHoles(t, dt);
       this.updateStorms(t, dt);
