@@ -339,8 +339,25 @@
       for (const sn of this.snakes) {
         if (!sn.alive) { if (sn.isBot && t >= sn.respawnAt) { sn.spawn(this.spawnAway(t, (this.humans()[0] || {}).p), t); this.events.push({ type: 'spawn', id: sn.id }); } continue; }
         if (sn.ghost) continue;
-        const cmd = sn.isBot ? this.botThink(sn, t) : sn.input;
-        if (sn.move(dt, cmd.steer, cmd.boost, this)) this.events.push({ type: 'portal', id: sn.id });
+        if (sn.inputQueue) {
+          // Online humans: step once per queued input, each for the frame time the client used for it. The
+          // server's state after input q is then exactly the client's prediction after input q, so
+          // reconciliation only ever corrects real divergence (pulls, collisions, dropped packets), not the
+          // beat between a 60 Hz client and a 20 Hz tick. Bounded so a client can't buy time: at most
+          // 2.5 ticks' worth of movement per tick, the rest waits. If nothing has arrived for a while
+          // (hidden tab, dropped link) the server keeps moving with the last input at its own tick rate.
+          const qd = sn.inputQueue; let budget = dt * 2.5, moved = 0;
+          while (qd.length && budget > 0) {
+            const inp = qd.shift(); const d = Math.min(inp.dt, budget); budget -= d; moved += d;
+            sn.input.steer = inp.steer; sn.input.boost = inp.boost; sn.appliedSeq = inp.seq;
+            if (sn.move(d, inp.steer, inp.boost, this)) this.events.push({ type: 'portal', id: sn.id });
+          }
+          sn.starved = moved > 0 ? 0 : (sn.starved || 0) + dt;
+          if (moved === 0 && sn.starved > .2 && sn.move(dt, sn.input.steer, sn.input.boost, this)) this.events.push({ type: 'portal', id: sn.id });
+        } else {
+          const cmd = sn.isBot ? this.botThink(sn, t) : sn.input;
+          if (sn.move(dt, cmd.steer, cmd.boost, this)) this.events.push({ type: 'portal', id: sn.id });
+        }
         if (sn.boostDebt >= 2) { sn.boostDebt -= 2; this.dropJellyPoints([sn.trail[0]], sn.look.a, t); }   // one jelly (worth 2) per 2 length boosted away
       }
       this.updateHoles(t, dt);
