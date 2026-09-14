@@ -56,6 +56,7 @@ class Room {
     const w = this.world;
     const from = (w.humans()[0] || {}).p;
     const sn = w.addSnake({ name: sanitizeName(name) || 'centi', look: sanitizeLook(look) });
+    sn.inputQueue = [];
     sn.spawn(w.spawnAway(this.t, from), this.t);
     this.clients.set(ws, sn);
     this.topUpBots();
@@ -96,7 +97,6 @@ class Room {
   }
   step(dt) {
     this.t += dt;
-    for (const sn of this.clients.values()) sn.appliedSeq = sn.input.seq || 0;   // the input this tick is about to use
     const events = this.world.step(dt, this.t);
     if (events.length) this.broadcast({ type: 'ev', t: this.t, events: events.map(e => this.packEvent(e)) });
   }
@@ -147,9 +147,11 @@ wss.on('connection', ws => {
       ws.send(JSON.stringify(room.fullState()));
       room.broadcast({ type: 'ev', t: room.t, events: [{ type: 'spawn', id: snake.id, snake: room.snakeFull(snake) }] });
     } else if (m.type === 'in' && snake) {
-      snake.input.steer = clamp(+m.s || 0, -1, 1);
-      snake.input.boost = !!m.b;
-      snake.input.seq = m.q | 0;          // client numbers its inputs; echoed back so it can reconcile like for like
+      // Inputs are queued with the frame time they were made for and consumed in order by world.step, so
+      // the server's state after input q matches the client's prediction after input q (see sim.js).
+      // dt is clamped to 1..50 ms and the queue to ~0.5 s; anything beyond is a stalled or cheating client.
+      const q = snake.inputQueue || (snake.inputQueue = []);
+      if (q.length < 30) q.push({ seq: m.q | 0, steer: clamp(+m.s || 0, -1, 1), boost: !!m.b, dt: clamp((+m.d || 167) / 10000, .001, .05) });
     } else if (m.type === 'respawn' && room && snake && !snake.alive) {
       snake.spawn(room.world.spawnAway(room.t, (room.world.humans().find(h => h !== snake) || {}).p), room.t);
       room.broadcast({ type: 'ev', t: room.t, events: [{ type: 'spawn', id: snake.id, snake: room.snakeFull(snake) }] });

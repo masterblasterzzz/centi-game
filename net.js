@@ -46,9 +46,7 @@
     disconnect() { this.cancelled = true; this.clearTimer(); this.ready = false; if (this.ws) { try { this.ws.onclose = null; this.ws.onmessage = null; this.ws.close(); } catch (e) {} this.ws = null; } }
     send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
     input(steer, boost) {
-      this.lastInput.steer = steer; this.lastInput.boost = !!boost;    // kept so the local prediction steers the same way
-      this.seq++;
-      this.send({ type: 'in', s: Math.round(steer * 100) / 100, b: !!boost, q: this.seq });
+      this.lastInput.steer = steer; this.lastInput.boost = !!boost;    // sent from predictSelf, with the frame's dt
     }
     respawn() { this.send({ type: 'respawn' }); }
     resetSelf() { this.selfSample = null; this.hist.length = 0; this.reconciledQ = -1; this.holdSince = 0; this.pred = null; this.vis.identity(); }
@@ -189,8 +187,12 @@
       else { if (atPortal) pred.portalCooldown = .6; this.holdSince = 0; pred.move(dtReal, this.lastInput.steer, this.lastInput.boost, w); }
       if (pred.portalCooldown > 0) pred.portalCooldown -= dtReal;
       pred.targetLen = sn.serverLen !== undefined ? sn.serverLen : sn.curLen;   // boost is allowed only while the server says there is length to burn
-      // remember this input and where it left us, so the server's report for it can be checked later
-      this.hist.push({ q: this.seq, steer: this.lastInput.steer, boost: this.lastInput.boost, dt: held ? 0 : dtReal, p: pred.p.clone(), h: pred.h.clone(), st: pred.steer });
+      // Number this input, send it with the frame time it was applied for (the server steps it for exactly
+      // that long), and remember where it left us so the server's report for it can be checked later.
+      this.seq++;
+      const dQ = held ? 0 : dtReal;
+      this.send({ type: 'in', s: Math.round(this.lastInput.steer * 100) / 100, b: this.lastInput.boost, q: this.seq, d: Math.round(dQ * 10000) });   // tenths of a millisecond: whole ms (17 vs 16.67) drifted 2%/s
+      this.hist.push({ q: this.seq, steer: this.lastInput.steer, boost: this.lastInput.boost, dt: dQ, p: pred.p.clone(), h: pred.h.clone(), st: pred.steer });
       if (this.hist.length > 240) this.hist.shift();                     // ~4 s at 60 fps; far more than the round trip
       this.reconcile(sn, pred);
       // what is drawn: the prediction, plus a visual offset that fades out (~120 ms) after each correction
