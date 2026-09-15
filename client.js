@@ -192,54 +192,111 @@ function drawJelly(t) {
 }
 
 // ---------- snake views ----------
-const segGeo = new THREE.SphereGeometry(1, 28, 20), legGeo = new THREE.CylinderGeometry(1, .7, 1, 10), headGeo = new THREE.SphereGeometry(2.1, 36, 26);
-const eyeGeo = new THREE.SphereGeometry(.48, 10, 8), eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
-const antGeo = new THREE.CylinderGeometry(.09, .16, 4, 5), antMat = new THREE.MeshStandardMaterial({ color: 0x3a1f12 });
+// Chunky-toy look. Each segment is a glossy rounded plate with a lighter dorsal cap, legs are tapered
+// limbs with round feet that lift as they swing, and the head has big eyes that glance into turns,
+// knobbed antennae and a pair of mandibles. Boost lights the body from inside and puts a halo on the
+// head; eating pops the head for a quarter second. Everything on the body is instanced, so a
+// 1600-segment centipede is still five draw calls.
+const toyEnv = (() => {                        // a small studio environment so the plastic actually shines
+  const pm = new THREE.PMREMGenerator(renderer); pm.compileEquirectangularShader();
+  const es = new THREE.Scene();
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(50, 24, 16), new THREE.MeshBasicMaterial({ side: THREE.BackSide, vertexColors: true }));
+  const pos = sky.geometry.attributes.position, cols = new Float32Array(pos.count * 3), top = new THREE.Color(0x9fbcd8), mid = new THREE.Color(0xb8b0a4), bot = new THREE.Color(0x3a3028), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) { const y = pos.getY(i) / 50; (y > 0 ? c.copy(mid).lerp(top, y) : c.copy(mid).lerp(bot, -y)).toArray(cols, i * 3); }
+  sky.geometry.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  es.add(sky);
+  const lamp = (x, y, z, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: 0xffffff })); m.position.set(x, y, z); m.lookAt(0, 0, 0); es.add(m); };
+  lamp(-12, 20, 10, 9, 4); lamp(18, 12, -6, 4, 4); lamp(4, -6, 22, 5, 2);
+  const tex = pm.fromScene(es, .05).texture; pm.dispose();
+  return tex;
+})();
+const segGeo = new THREE.SphereGeometry(1, 24, 18);                                            // scaled into a plate per instance
+const capGeo = new THREE.SphereGeometry(1.02, 20, 10, 0, Math.PI * 2, 0, Math.PI * .5);         // dorsal cap: the top half only
+const legGeo = new THREE.CylinderGeometry(.42, 1, 1, 9), footGeo = new THREE.SphereGeometry(1, 10, 8);
+const headGeo = new THREE.SphereGeometry(2.1, 36, 26);
+const eyeGeo = new THREE.SphereGeometry(.82, 18, 14), pupilGeo = new THREE.SphereGeometry(.42, 12, 10), glintGeo = new THREE.SphereGeometry(.14, 8, 6);
+const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .2, envMap: toyEnv, envMapIntensity: .5 });
+const pupilMat = new THREE.MeshStandardMaterial({ color: 0x14110f, roughness: .25, envMap: toyEnv });
+const glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const antGeo = new THREE.CylinderGeometry(.09, .2, 4.2, 6).translate(0, 2.1, 0), knobGeo = new THREE.SphereGeometry(.36, 10, 8), jawGeo = new THREE.ConeGeometry(.5, 1.9, 8).translate(0, .95, 0);
+const haloTex = (() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64); grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(.35, 'rgba(255,255,255,.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const tx = new THREE.CanvasTexture(cv); return tx;
+})();
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
-const colA = new THREE.Color(), colB = new THREE.Color(), colMix = new THREE.Color();
+const colA = new THREE.Color(), colB = new THREE.Color(), colMix = new THREE.Color(), colCap = new THREE.Color(), colBody = new THREE.Color();
 const dirSide = new THREE.Vector3(), fwd = new THREE.Vector3(), base = new THREE.Vector3(), tip = new THREE.Vector3();
 const legQ = new THREE.Quaternion(), legDir = new THREE.Vector3(), legMid = new THREE.Vector3();
-const ptA = new THREE.Vector3(), ptB = new THREE.Vector3(), pt = new THREE.Vector3();
+const ptA = new THREE.Vector3(), ptB = new THREE.Vector3(), pt = new THREE.Vector3(), segPos = new THREE.Vector3();
 class SnakeView {
   constructor(snake) {
     this.snake = snake;
-    this.bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .55 });
+    this.bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .4, metalness: .04, envMap: toyEnv, envMapIntensity: .5, emissive: 0x000000 });
     this.body = new THREE.InstancedMesh(segGeo, this.bodyMat, MAX_SEG);
-    this.legMat = new THREE.MeshStandardMaterial({ color: 0x0e0c0c, roughness: .8 });
+    this.capMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .3, metalness: .02, envMap: toyEnv, envMapIntensity: .6, emissive: 0x000000 });
+    this.cap = new THREE.InstancedMesh(capGeo, this.capMat, MAX_SEG);
+    this.legMat = new THREE.MeshStandardMaterial({ color: 0x0e0c0c, roughness: .5, envMap: toyEnv, envMapIntensity: .6 });
     this.legs = new THREE.InstancedMesh(legGeo, this.legMat, MAX_SEG * 2);
-    this.headMat = new THREE.MeshStandardMaterial({ color: 0xe8632f, roughness: .5 });
-    this.head = new THREE.Group(); this.head.add(new THREE.Mesh(headGeo, this.headMat));
+    this.feet = new THREE.InstancedMesh(footGeo, this.legMat, MAX_SEG * 2);
+    this.headMat = new THREE.MeshStandardMaterial({ color: 0xe8632f, roughness: .38, metalness: .04, envMap: toyEnv, envMapIntensity: .55, emissive: 0x000000 });
+    this.trimMat = new THREE.MeshStandardMaterial({ color: 0x0e0c0c, roughness: .5, envMap: toyEnv, envMapIntensity: .6 });
+    this.head = new THREE.Group();
+    const skull = new THREE.Mesh(headGeo, this.headMat); skull.scale.set(1.2, 1.02, 1.3); this.head.add(skull);
+    this.eyes = []; this.pupils = [];
     [-1, 1].forEach(s => {
-      const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.set(s * .95, .85, 1.55); this.head.add(eye);
-      const ant = new THREE.Mesh(antGeo, antMat); ant.position.set(s * .8, 1.5, 1.4); ant.rotation.set(-0.9, 0, s * 0.6); this.head.add(ant);
+      const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.set(s * 1.15, 1.25, 1.45); this.head.add(eye); this.eyes.push(eye);
+      const pupil = new THREE.Mesh(pupilGeo, pupilMat); pupil.position.set(0, .42, .5); eye.add(pupil); this.pupils.push(pupil);
+      const glint = new THREE.Mesh(glintGeo, glintMat); glint.position.set(-.14 * s, .26, .3); pupil.add(glint);
+      const ant = new THREE.Mesh(antGeo, this.trimMat); ant.position.set(s * .7, 1.9, .7); ant.rotation.set(.75, 0, -s * .5); this.head.add(ant);
+      const knob = new THREE.Mesh(knobGeo, this.trimMat); knob.position.set(0, 4.2, 0); ant.add(knob);
+      const jaw = new THREE.Mesh(jawGeo, this.trimMat); jaw.position.set(s * 1.0, .35, 2.3); jaw.rotation.set(1.45, 0, -s * .45); this.head.add(jaw);
     });
-    scene.add(this.body); scene.add(this.legs); scene.add(this.head);
+    this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.halo.scale.setScalar(0); this.head.add(this.halo);
+    this.glow = 0; this.popAt = -9;
+    scene.add(this.body); scene.add(this.cap); scene.add(this.legs); scene.add(this.feet); scene.add(this.head);
     this.applyLook();
   }
+  pop(t) { this.popAt = t; }
   applyLook() {
     const L = this.snake.look;
-    this.headMat.color.set(L.head); this.legMat.color.set(L.legs);
-    colA.set(L.a); colB.set(L.b);
+    this.headMat.color.set(L.head); this.legMat.color.set(L.legs); this.trimMat.color.set(L.legs);
+    this.halo.material.color.set(L.head).lerp(new THREE.Color(0xffffff), .35);
+    colA.set(L.a); colB.set(L.b); this.tintA = new THREE.Color(L.a);
     for (let i = 0; i < MAX_SEG; i++) {
       if (L.pattern === 'solid') colMix.copy(colA);
       else if (L.pattern === 'stripes') colMix.copy(i % 6 < 3 ? colA : colB);
       else colMix.copy(colA).lerp(colB, Math.min(1, i / 220));
-      this.body.setColorAt(i, colMix);
+      colBody.copy(colMix).multiplyScalar(.72);                        // a shade darker underneath...
+      colCap.copy(colMix).lerp(new THREE.Color(0xffffff), .26);         // ...and a lighter shell on top: reads as a toy at any zoom
+      this.body.setColorAt(i, colBody); this.cap.setColorAt(i, colCap);
     }
-    this.body.instanceColor.needsUpdate = true;
+    this.body.instanceColor.needsUpdate = true; this.cap.instanceColor.needsUpdate = true;
   }
   draw(t) {
     const sn = this.snake, vis = sn.alive;
-    this.body.visible = this.legs.visible = this.head.visible = vis;
+    this.body.visible = this.cap.visible = this.legs.visible = this.feet.visible = this.head.visible = vis;
     if (!vis) return;
     const p = sn.p, h = sn.h, trail = sn.trail;
-    const girth = sn.girth(), hs = .7 + .3 * girth;
+    const girth = sn.girth(), pop = Math.max(0, 1 - (t - this.popAt) / .28);
+    const hs = (.7 + .3 * girth) * (1 + .3 * Math.sin(pop * Math.PI));
     this.head.scale.setScalar(hs);
     this.head.position.copy(p).multiplyScalar(R + 2 * hs);
     this.head.up.copy(p);
     this.head.lookAt(tmpV.copy(p).addScaledVector(h, .1).multiplyScalar(R + 2));
+    // eyes glance into the turn; boosting squints them
+    const look = -sn.steer * .26, squint = sn.boost ? .55 : 1;
+    for (let k = 0; k < 2; k++) { this.pupils[k].position.x = look; this.eyes[k].scale.y += (squint - this.eyes[k].scale.y) * .25; }
+    // boost: the body glows from inside and a halo streams off the head
+    this.glow += ((sn.boost ? 1 : 0) - this.glow) * .12;
+    const gl = this.glow * (.75 + .25 * Math.sin(t * 18));
+    this.bodyMat.emissive.copy(this.tintA).multiplyScalar(gl * .55); this.capMat.emissive.copy(this.tintA).multiplyScalar(gl * .35);
+    this.headMat.emissive.copy(this.headMat.color).multiplyScalar(gl * .5);
+    this.halo.material.opacity = this.glow * .85; this.halo.scale.setScalar(6 + 3 * gl); this.halo.position.set(0, 0, -1.5 - 2 * gl);
     // A snake that just joined has only its head recorded; draw the head and wait for the body.
-    if (trail.length < 2) { this.body.count = 0; this.legs.count = 0; this.body.instanceMatrix.needsUpdate = true; this.legs.instanceMatrix.needsUpdate = true; return; }
+    if (trail.length < 2) { this.body.count = this.cap.count = this.legs.count = this.feet.count = 0; this.body.instanceMatrix.needsUpdate = this.cap.instanceMatrix.needsUpdate = this.legs.instanceMatrix.needsUpdate = this.feet.instanceMatrix.needsUpdate = true; return; }
     // Segment i sits exactly (i+1)*SEG behind the head, interpolated between recorded trail points, so it glides.
     const n = trail.length;
     const headDist = trail[n - 1].angleTo(p) * R;
@@ -253,24 +310,37 @@ class SnakeView {
       if (cut) pt.copy(ptA); else pt.lerpVectors(ptA, ptB, u).normalize();
       let scale = (1.7 - (i / Math.max(count, 1)) * .8) * girth;
       if (i === count - 1 && frac > 0) scale *= .35 + .65 * frac;
-      tmpV.copy(pt).multiplyScalar(R + scale);
-      tmpM.compose(tmpV, tmpQ, tmpS.set(scale, scale, scale)); this.body.setMatrixAt(i, tmpM);
       if (cut) fwd.subVectors(i === 0 ? p : trail[n - i], ptA); else fwd.subVectors(ptA, ptB);
-      fwd.normalize(); dirSide.crossVectors(pt, fwd).normalize();
+      fwd.sub(tmpV.copy(pt).multiplyScalar(fwd.dot(pt)));
+      if (fwd.lengthSq() < 1e-10) fwd.copy(h); fwd.normalize();
+      dirSide.crossVectors(pt, fwd).normalize();
+      // plate: a little wider than long, squashed flat, overlapping the one behind; the cap rides on top
+      segPos.copy(pt).multiplyScalar(R + scale * .9);
+      tmpM.makeBasis(dirSide, pt, fwd); tmpS.set(scale * 1.1, scale * .84, scale * 1.2); tmpM.scale(tmpS); tmpM.setPosition(segPos);
+      this.body.setMatrixAt(i, tmpM);
+      tmpM.makeBasis(dirSide, pt, fwd); tmpS.set(scale * 1.0, scale * .9, scale * 1.08); tmpM.scale(tmpS); tmpM.setPosition(segPos);
+      this.cap.setMatrixAt(i, tmpM);
+      // legs: swing fore/aft down the body in a wave, lift on the forward swing, plant on the back swing
       const sway = Math.sin(t * 13 - i * .75);
       for (const sd of [-1, 1]) {
-        base.copy(pt).multiplyScalar(R + scale * .55);
-        tip.copy(pt).addScaledVector(dirSide, sd * (scale * 2.0) / R).addScaledVector(fwd, sd * sway * scale * .5 / R).normalize().multiplyScalar(R + .4);
+        const sw = sd * sway, lift = Math.max(0, sw) * scale * .9;
+        base.copy(pt).multiplyScalar(R + scale * .5).addScaledVector(dirSide, sd * scale * .55);
+        tip.copy(pt).addScaledVector(dirSide, sd * (scale * 2.1) / R).addScaledVector(fwd, sw * scale * .55 / R).normalize().multiplyScalar(R + .35 + lift);
         legDir.subVectors(tip, base); const len = legDir.length(); legDir.divideScalar(len);
         legQ.setFromUnitVectors(Y_AXIS, legDir); legMid.addVectors(base, tip).multiplyScalar(.5);
-        const th = scale * .26;
-        tmpM.compose(legMid, legQ, tmpS.set(th, len, th)); this.legs.setMatrixAt(li++, tmpM);
+        const th = scale * .3;
+        tmpM.compose(legMid, legQ, tmpS.set(th, len, th)); this.legs.setMatrixAt(li, tmpM);
+        tmpM.compose(tip, legQ, tmpS.set(th * .62, th * .5, th * .62)); this.feet.setMatrixAt(li, tmpM);
+        li++;
       }
     }
-    this.body.count = count; this.body.instanceMatrix.needsUpdate = true;
-    this.legs.count = li; this.legs.instanceMatrix.needsUpdate = true;
+    this.body.count = this.cap.count = count; this.body.instanceMatrix.needsUpdate = this.cap.instanceMatrix.needsUpdate = true;
+    this.legs.count = this.feet.count = li; this.legs.instanceMatrix.needsUpdate = this.feet.instanceMatrix.needsUpdate = true;
   }
-  dispose() { scene.remove(this.body); scene.remove(this.legs); scene.remove(this.head); this.body.dispose(); this.legs.dispose(); }
+  dispose() {
+    for (const m of [this.body, this.cap, this.legs, this.feet, this.head]) scene.remove(m);
+    this.body.dispose(); this.cap.dispose(); this.legs.dispose(); this.feet.dispose();
+  }
 }
 
 // ---------- population ----------
@@ -653,8 +723,8 @@ function drawMini(p) {
 function handleEvents(events, t) {
   for (const e of events) {
     const sn = byId(e.id), mine = sn === me() && !attract;
-    if (e.type === 'eat') { if (mine) Sound.eat(e.boost); }
-    else if (e.type === 'jelly') { if (mine) Sound.jelly(); }
+    if (e.type === 'eat') { if (mine) Sound.eat(e.boost); const v = views.get(e.id); if (v) v.pop(t); }
+    else if (e.type === 'jelly') { if (mine) Sound.jelly(); const v = views.get(e.id); if (v) v.pop(t); }
     else if (e.type === 'portal') { if (mine) { runPortals++; snapCam = true; Sound.portal(); flashOn(); } }
     else if (e.type === 'sever') { feedMsg(who(sn) + ' lost ' + e.lost + ' segments to a portal'); if (mine) { Sound.snip(); flashOn(); } }
     else if (e.type === 'death') {
