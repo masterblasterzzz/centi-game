@@ -194,8 +194,8 @@ function drawJelly(t) {
 // ---------- snake views ----------
 // Chunky-toy look. Each segment is a glossy rounded plate with a lighter dorsal cap, legs are tapered
 // limbs with round feet that lift as they swing, and the head has big eyes that glance into turns,
-// knobbed antennae and a pair of mandibles. Boost lights the body from inside and puts a halo on the
-// head; eating pops the head for a quarter second. Everything on the body is instanced, so a
+// squint on boost. Boost lights the body from inside and puts a halo on the head; eating pops the head
+// for a quarter second. Everything on the body is instanced, so a
 // 1600-segment centipede is still five draw calls.
 const toyEnv = (() => {                        // a small studio environment so the plastic actually shines
   const pm = new THREE.PMREMGenerator(renderer); pm.compileEquirectangularShader();
@@ -218,7 +218,6 @@ const eyeGeo = new THREE.SphereGeometry(.82, 18, 14), pupilGeo = new THREE.Spher
 const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .2, envMap: toyEnv, envMapIntensity: .5 });
 const pupilMat = new THREE.MeshStandardMaterial({ color: 0x14110f, roughness: .25, envMap: toyEnv });
 const glintMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-const antGeo = new THREE.CylinderGeometry(.09, .2, 4.2, 6).translate(0, 2.1, 0), knobGeo = new THREE.SphereGeometry(.36, 10, 8), jawGeo = new THREE.ConeGeometry(.5, 1.9, 8).translate(0, .95, 0);
 const haloTex = (() => {
   const cv = document.createElement('canvas'); cv.width = cv.height = 128; const g = cv.getContext('2d');
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64); grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(.35, 'rgba(255,255,255,.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
@@ -241,7 +240,6 @@ class SnakeView {
     this.legs = new THREE.InstancedMesh(legGeo, this.legMat, MAX_SEG * 2);
     this.feet = new THREE.InstancedMesh(footGeo, this.legMat, MAX_SEG * 2);
     this.headMat = new THREE.MeshStandardMaterial({ color: 0xe8632f, roughness: .38, metalness: .04, envMap: toyEnv, envMapIntensity: .55, emissive: 0x000000 });
-    this.trimMat = new THREE.MeshStandardMaterial({ color: 0x0e0c0c, roughness: .5, envMap: toyEnv, envMapIntensity: .6 });
     this.head = new THREE.Group();
     const skull = new THREE.Mesh(headGeo, this.headMat); skull.scale.set(1.2, 1.02, 1.3); this.head.add(skull);
     this.eyes = []; this.pupils = [];
@@ -249,9 +247,6 @@ class SnakeView {
       const eye = new THREE.Mesh(eyeGeo, eyeMat); eye.position.set(s * 1.15, 1.25, 1.45); this.head.add(eye); this.eyes.push(eye);
       const pupil = new THREE.Mesh(pupilGeo, pupilMat); pupil.position.set(0, .42, .5); eye.add(pupil); this.pupils.push(pupil);
       const glint = new THREE.Mesh(glintGeo, glintMat); glint.position.set(-.14 * s, .26, .3); pupil.add(glint);
-      const ant = new THREE.Mesh(antGeo, this.trimMat); ant.position.set(s * .7, 1.9, .7); ant.rotation.set(.75, 0, -s * .5); this.head.add(ant);
-      const knob = new THREE.Mesh(knobGeo, this.trimMat); knob.position.set(0, 4.2, 0); ant.add(knob);
-      const jaw = new THREE.Mesh(jawGeo, this.trimMat); jaw.position.set(s * 1.0, .35, 2.3); jaw.rotation.set(1.45, 0, -s * .45); this.head.add(jaw);
     });
     this.halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.halo.scale.setScalar(0); this.head.add(this.halo);
@@ -262,7 +257,7 @@ class SnakeView {
   pop(t) { this.popAt = t; }
   applyLook() {
     const L = this.snake.look;
-    this.headMat.color.set(L.head); this.legMat.color.set(L.legs); this.trimMat.color.set(L.legs);
+    this.headMat.color.set(L.head); this.legMat.color.set(L.legs);
     this.halo.material.color.set(L.head).lerp(new THREE.Color(0xffffff), .35);
     colA.set(L.a); colB.set(L.b); this.tintA = new THREE.Color(L.a);
     for (let i = 0; i < MAX_SEG; i++) {
@@ -455,7 +450,20 @@ muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
 // ---------- customiser ----------
 const cA = document.getElementById('cA'), cB = document.getElementById('cB'), cH = document.getElementById('cH'), cL = document.getElementById('cL');
 const presetsEl = document.getElementById('presets'), patternEl = document.getElementById('pattern'), nameEl = document.getElementById('name');
-function applyLook() { const v = views.get(me().id); if (v) { v.snake.look = look; v.applyLook(); } document.getElementById('sub').textContent = look.name ? look.name : 'segments'; }
+function applyLook() {
+  const v = views.get(me().id); if (v) { v.snake.look = look; v.applyLook(); }
+  document.getElementById('sub').textContent = look.name ? look.name : 'segments';
+  document.getElementById('lookswatch').style.background = 'linear-gradient(135deg,' + look.a + ' 50%,' + look.b + ' 50%)';
+  const sel = [...presetsEl.children].find(b => b.classList.contains('sel'));
+  document.getElementById('lookname').textContent = sel ? sel.textContent : 'Custom';
+}
+const lookPanel = document.getElementById('lookpanel');
+document.getElementById('lookbtn').addEventListener('click', () => lookPanel.classList.add('on'));
+document.getElementById('lookdone').addEventListener('click', () => lookPanel.classList.remove('on'));
+lookPanel.addEventListener('click', e => { if (e.target === lookPanel) lookPanel.classList.remove('on'); });
+lookPanel.addEventListener('pointerdown', e => e.stopPropagation());
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches;
+document.body.classList.toggle('touch', IS_TOUCH);
 function syncInputs() { cA.value = look.a; cB.value = look.b; cH.value = look.head; cL.value = look.legs;
   [...patternEl.children].forEach(b => b.classList.toggle('sel', b.dataset.p === look.pattern)); }
 PRESETS.forEach(pr => {
@@ -595,8 +603,8 @@ function setFollow(i) {
 function startWatching() { spectating = true; overEl.classList.remove('on'); specEl.classList.add('on'); hintEl.classList.add('hide'); setFollow(-1); }
 function stopWatching() { spectating = false; specEl.classList.remove('on'); hintEl.classList.remove('hide'); }
 [startEl, overEl, specEl].forEach(el => el.addEventListener('pointerdown', e => e.stopPropagation()));
-document.getElementById('play').addEventListener('click', () => { Sound.init(); store.set('look', look); startEl.classList.remove('on'); startRun(); });
-document.getElementById('playonline').addEventListener('click', () => { Sound.init(); store.set('look', look); goOnline(); });
+document.getElementById('play').addEventListener('click', () => { Sound.init(); if (tilt.on) askTilt(); store.set('look', look); startEl.classList.remove('on'); startRun(); });
+document.getElementById('playonline').addEventListener('click', () => { Sound.init(); if (tilt.on) askTilt(); store.set('look', look); goOnline(); });
 document.getElementById('again').addEventListener('click', () => {
   if (online && net) { overEl.classList.remove('on'); gameOverFlag = false; killcam = null; snapCam = true; runStart = now(); mouse.moved = false; net.respawn(); return; }
   player.kills = 0; startRun();
@@ -650,22 +658,41 @@ addEventListener('keydown', e => {
   if (e.code === 'Minus' || e.code === 'NumpadSubtract') { userZoom /= .85; clampZoom(); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
-// mouse: the centipede follows the cursor; hold the button to boost
+// mouse: the centipede follows the cursor; hold the button to boost.
+// touch: the centipede heads for your finger (same maths as the mouse); a second finger boosts.
+// tilt (opt-in on the start card): lean the phone to steer, touch anywhere to boost.
 const mouse = { x: 0, y: 0, active: false, down: false, moved: false };
 const scrHead = new THREE.Vector3(), scrAhead = new THREE.Vector3();
-function mouseSteer() {
+const tilt = { on: !!store.get('tilt'), ok: false, steer: 0 };
+const tiltBox = document.getElementById('tilt'); tiltBox.checked = tilt.on;
+tiltBox.addEventListener('change', () => { tilt.on = tiltBox.checked; store.set('tilt', tilt.on); if (tilt.on) askTilt(); });
+function askTilt() {                                     // iOS needs this from a tap; other browsers just deliver events
+  const D = window.DeviceOrientationEvent;
+  if (!D) { tilt.ok = false; return; }
+  if (typeof D.requestPermission === 'function') D.requestPermission().then(r => { tilt.ok = r === 'granted'; }).catch(() => { tilt.ok = false; });
+  else tilt.ok = true;
+}
+addEventListener('deviceorientation', e => {
+  if (!tilt.on || e.gamma == null) return;
+  const a = (screen.orientation && screen.orientation.angle) || window.orientation || 0;   // which axis is "left-right" depends on how the phone is held
+  const g = a === 90 ? -e.beta : a === -90 || a === 270 ? e.beta : a === 180 ? -e.gamma : e.gamma;
+  const dead = 3, span = 22;
+  tilt.steer = Math.abs(g) < dead ? 0 : Math.max(-1, Math.min(1, (g - Math.sign(g) * dead) / span));
+});
+function pointSteer(px, py) {
   const self = me();
   scrHead.copy(self.p).multiplyScalar(R + 2).project(camera);
   scrAhead.copy(self.p).addScaledVector(self.h, 6 / R).normalize().multiplyScalar(R + 2).project(camera);
   const hx = (scrHead.x + 1) / 2 * innerWidth, hy = (1 - scrHead.y) / 2 * innerHeight;
   const ax = (scrAhead.x + 1) / 2 * innerWidth, ay = (1 - scrAhead.y) / 2 * innerHeight;
-  const shx = ax - hx, shy = ay - hy, scx = mouse.x - hx, scy = mouse.y - hy;
+  const shx = ax - hx, shy = ay - hy, scx = px - hx, scy = py - hy;
   const dc = Math.hypot(scx, scy), dh = Math.hypot(shx, shy);
   if (dc < 22 || dh < 1e-3) return 0;
   const cross = (shx * scy - shy * scx) / (dh * dc);
   const dot = (shx * scx + shy * scy) / (dh * dc);
   return Math.max(-1, Math.min(1, Math.atan2(cross, dot) / .35));
 }
+const mouseSteer = () => pointSteer(mouse.x, mouse.y);
 renderer.domElement.addEventListener('pointerdown', e => {
   if (spectating) drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
   if (e.pointerType === 'mouse') { mouse.down = true; mouse.active = true; return; }
@@ -753,8 +780,9 @@ function frame(nowMs) {
       if (keys.ArrowLeft || keys.KeyA) steer -= 1;
       if (keys.ArrowRight || keys.KeyD) steer += 1;
       if (steer === 0 && touches.size === 0 && mouse.active && mouse.moved) steer = mouseSteer();
-      if (touches.size === 1) steer = [...touches.values()][0].side;
-      boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching);
+      if (tilt.on && tilt.ok) steer = tilt.steer;
+      else if (touches.size === 1) { const f = [...touches.values()][0]; steer = pointSteer(f.x, f.y); }
+      boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching) || (tilt.on && tilt.ok && touches.size === 1);
     }
     if (online) {
       if (net) { net.input(steer, boost); net.interpolate(dtReal); }
