@@ -35,7 +35,7 @@
   "keywords":"centipede game, io game, slither style, 3D globe game, browser game, free online game, multiplayer snake game"},
  {"@type":"FAQPage","@id":"https://centi.gg/#faq","mainEntity":[
   {"@type":"Question","name":"What is centi?","acceptedAnswer":{"@type":"Answer","text":"centi is a free browser game where you steer a centipede across the surface of a 3D globe. Eat pellets to grow, run rivals into your body to eat them, and stay clear of sinkholes and storms. It plays like slither-style .io games but on a sphere, so there are no edges to the map."}},
-  {"@type":"Question","name":"How do I play centi?","acceptedAnswer":{"@type":"Answer","text":"Move the mouse and your centipede follows the cursor; hold the button to boost. On a phone, touch the left or right side of the screen to steer and use two fingers to boost. On a keyboard use the arrow keys or A/D, with space to boost. Boost costs length, so use it to escape or to cut someone off."}},
+  {"@type":"Question","name":"How do I play centi?","acceptedAnswer":{"@type":"Answer","text":"Move the mouse and your centipede follows the cursor; hold the button to boost. On a phone, touch anywhere and your centipede heads for your finger; hold a second finger to boost, or switch on tilt steering. On a keyboard use the arrow keys or A/D, with space to boost. Boost costs length, so use it to escape or to cut someone off."}},
   {"@type":"Question","name":"What do the portals at the poles do?","acceptedAnswer":{"@type":"Answer","text":"Enter a portal at one pole while it is green and you come out at the opposite pole. Each pole has its own timer. If a portal closes while your body is still passing through, the part on the far side is cut off and becomes jelly."}},
   {"@type":"Question","name":"Is centi free and does it work on mobile?","acceptedAnswer":{"@type":"Answer","text":"Yes. centi is free, has no download, and runs in any modern browser on phone, tablet or desktop."}},
   {"@type":"Question","name":"Is centi multiplayer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Choose Play online to join a shared globe with up to 40 players; bots fill the empty places so the world is never dead. There is also a solo mode against nine AI centipedes."}}
@@ -53,7 +53,7 @@
   #board { position: fixed; top: calc(max(14px, env(safe-area-inset-top)) + 46px); right: 16px; color: #f2eee4; font-size: 12px; line-height: 1.6; text-align: right; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.8); opacity: .85; }
   #board b { font-weight: 700; }
   #board .me { color: #39ff6a; }
-  #hint { position: fixed; bottom: max(14px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; color: #b9b3a6; font-size: 12px; pointer-events: none; padding: 0 20px; line-height: 1.5; }
+  #hint { display: none; }
   #flash { position: fixed; inset: 0; background: #9ff3ff; opacity: 0; pointer-events: none; transition: opacity .5s ease-out; }
   #flash.on { opacity: .6; transition: none; }
   #over { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: rgba(5,8,16,.72); color: #f2eee4; text-align: center; }
@@ -93,13 +93,29 @@
   .vols label { margin: 0 0 4px; }
   .vols input[type=range] { width: 100%; accent-color: #39ff6a; }
   #mute { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 128px; background: rgba(255,255,255,.08); color: #f2eee4; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 8px 12px; font: 600 13px system-ui, sans-serif; cursor: pointer; }
+  #howto { margin: 4px 0 8px; padding: 10px 12px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; color: #fff; font-size: 13px; line-height: 1.5; }
+  #howto .h { font-weight: 700; margin-bottom: 4px; }
+  #howto div + div { margin-top: 5px; }
+  #howto b { color: #39ff6a; font-weight: 700; }
+  body.touch #howto-mouse, body:not(.touch) #howto-touch, body:not(.touch) #tiltrow { display: none; }
+  .switch { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; font-size: 13px; opacity: .9; cursor: pointer; }
+  .switch input { accent-color: #39ff6a; width: 18px; height: 18px; }
+  .lookrow { display: grid; grid-template-columns: auto 1fr; gap: 8px; margin-top: 8px; }
+  #lookbtn { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: #f2eee4; padding: 6px 12px 6px 8px; font: 13px system-ui, sans-serif; cursor: pointer; }
+  #lookbtn i { width: 26px; height: 26px; border-radius: 50%; display: block; }
+  #lookbtn em { font-style: normal; opacity: .6; font-size: 12px; }
+  #lookpanel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(5,8,16,.6); z-index: 6; }
+  #lookpanel.on { display: flex; }
+  #lookpanel .panel { width: min(400px, calc(100% - 24px)); max-height: 90vh; overflow: auto; padding: 16px; box-sizing: border-box; background: rgba(9,13,24,.96); border: 1px solid rgba(255,255,255,.14); border-radius: 18px; color: #f2eee4; }
+  #lookpanel .ptitle { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 16px; }
+  #lookdone { background: #39ff6a; color: #04140a; border: 0; border-radius: 18px; padding: 8px 18px; font: 700 14px system-ui, sans-serif; cursor: pointer; }
+  #lookpanel label { display: block; font-size: 13px; opacity: .75; margin: 12px 0 5px; }
   #play { width: 100%; margin-top: 14px; background: #39ff6a; color: #04140a; border: 0; border-radius: 24px; padding: 14px; font: 700 16px system-ui, sans-serif; cursor: pointer; }
   #play:focus-visible, #name:focus-visible { outline: 2px solid #fff; }
   #feed { position: fixed; top: calc(max(14px, env(safe-area-inset-top)) + 68px); left: 16px; color: #f2eee4; font-size: 12px; line-height: 1.55; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,.8); max-width: 46vw; }
   #feed div { opacity: .9; }
   #feed b { color: #39ff6a; font-weight: 600; }
   #minilabel { position: fixed; left: 16px; color: #b9b3a6; font-size: 11px; pointer-events: none; text-shadow: 0 1px 3px #000; }
-  #hint { left: calc(min(150px, 30vw) + 24px); }
   #cine { position: fixed; top: max(14px, env(safe-area-inset-top)); right: 178px; background: rgba(255,255,255,.08); color: #f2eee4; border: 1px solid rgba(255,255,255,.25); border-radius: 20px; padding: 8px 12px; font: 600 13px system-ui, sans-serif; cursor: pointer; }
   body.cine #hud, body.cine #view, body.cine #mute, body.cine #board, body.cine #hint, body.cine #feed, body.cine #minilabel, body.cine #spec { display: none !important; }
   body.cine #cine { opacity: .25; }
@@ -129,16 +145,14 @@
 <div id="feed"></div>
 <div id="minilabel">far side</div>
 <div id="board"></div>
-<div id="hint">Steer: move the mouse (the centipede follows), ← → or A/D, or touch left / right side of the screen. Hold the mouse button, space or two fingers to boost (costs length). Pinch, scroll or +/− to zoom. V hides the UI for filming. Run into a body and you die; the dead leave jelly. Portals are open while green — if one closes on your tail, you lose it. Sinkholes and storms pull you in — boost to escape.</div>
+<div id="hint"></div>
 <div id="flash"></div>
 <div id="netstatus"></div>
 <button id="netcancel">× Back to the menu</button>
 <div id="over"><h1 id="overtitle">Swallowed by a sinkhole</h1><p id="overlen"></p><p id="overbest"></p><div class="row"><button id="again">Play again</button><button id="share" class="ghost">Share</button><button id="watch" class="ghost">Watch</button><button id="relook" class="ghost">Change look</button></div></div>
 <div id="spec"><span id="specwho">Watching your remains</span><button id="follow">Follow Boss</button><button id="again2" class="go">Play again</button><button id="relook2">Change look</button></div>
-<div id="start"><div class="card">
-  <h1>centi<span id="tld">.gg</span></h1>
-  <p class="tag">Eat, grow, and don't fall in.</p>
-  <p id="best"></p>
+<div id="lookpanel"><div class="panel">
+  <div class="ptitle"><span>Build your centipede</span><button id="lookdone" type="button">Done</button></div>
   <label>Pick a body</label>
   <div id="presets"></div>
   <label>Or tune it</label>
@@ -150,8 +164,22 @@
   </div>
   <label>Pattern</label>
   <div class="seg" id="pattern"><button data-p="solid">Solid</button><button data-p="stripes">Stripes</button><button data-p="gradient">Gradient</button></div>
-  <label>Name</label>
-  <input id="name" maxlength="14" placeholder="Your centipede's name">
+</div></div>
+<div id="start"><div class="card">
+  <h1>centi<span id="tld">.gg</span></h1>
+  <p class="tag">Eat, grow, and don't fall in.</p>
+  <p id="best"></p>
+  <div id="howto">
+    <div class="h">How to play</div>
+    <div id="howto-touch"><b>Steer:</b> touch anywhere and the centipede heads for your finger. <b>Boost:</b> hold a second finger down (costs length). <b>Zoom:</b> pinch.</div>
+    <div id="howto-mouse"><b>Steer:</b> move the mouse, the centipede follows it (or ← → / A D). <b>Boost:</b> hold the mouse button or space (costs length). <b>Zoom:</b> scroll or + / −. <b>C</b> camera, <b>V</b> hides the UI.</div>
+    <div>Eat pellets to grow. Run into any body and you die; the dead leave jelly. Portals at the poles jump you across the globe while green. Sinkholes and storms pull you in — boost to escape.</div>
+  </div>
+  <label class="switch" id="tiltrow"><input type="checkbox" id="tilt"><span>Tilt to steer (uses the phone's gyro; touch to boost)</span></label>
+  <div class="lookrow">
+    <button id="lookbtn" type="button"><i id="lookswatch"></i><span id="lookname">Ember</span><em>Change look</em></button>
+    <input id="name" maxlength="14" placeholder="Your centipede's name">
+  </div>
   <div class="vols">
     <div><label>Music</label><input type="range" id="volMusic" min="0" max="100" value="55"></div>
     <div><label>Sounds</label><input type="range" id="volSfx" min="0" max="100" value="80"></div>
@@ -165,7 +193,7 @@
     <h2>How to play</h2>
     <ul>
       <li><strong>Mouse:</strong> your centipede follows the cursor. Hold the button to boost.</li>
-      <li><strong>Touch:</strong> tap and hold the left or right side of the screen to steer; two fingers to boost; pinch to zoom.</li>
+      <li><strong>Touch:</strong> touch anywhere and the centipede heads for your finger; hold a second finger to boost; pinch to zoom. Or switch on <em>Tilt to steer</em> and lean the phone.</li>
       <li><strong>Keyboard:</strong> arrow keys or A/D to steer, space to boost, C to switch camera, V for cinematic mode.</li>
       <li>Boost costs length, so spend it to escape a storm or to cut across another centipede's path.</li>
       <li>Head into any body and you die; the dead leave jelly worth double a pellet.</li>
