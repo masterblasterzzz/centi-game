@@ -35,7 +35,7 @@
   "keywords":"centipede game, io game, slither style, 3D globe game, browser game, free online game, multiplayer snake game"},
  {"@type":"FAQPage","@id":"https://centi.gg/#faq","mainEntity":[
   {"@type":"Question","name":"What is centi?","acceptedAnswer":{"@type":"Answer","text":"centi is a free browser game where you steer a centipede across the surface of a 3D globe. Eat pellets to grow, run rivals into your body to eat them, and stay clear of sinkholes and storms. It plays like slither-style .io games but on a sphere, so there are no edges to the map."}},
-  {"@type":"Question","name":"How do I play centi?","acceptedAnswer":{"@type":"Answer","text":"Move the mouse and your centipede follows the cursor; hold the button to boost. On a phone, touch anywhere and your centipede heads for your finger; hold a second finger to boost, or switch on tilt steering. On a keyboard use the arrow keys or A/D, with space to boost. Boost costs length, so use it to escape or to cut someone off."}},
+  {"@type":"Question","name":"How do I play centi?","acceptedAnswer":{"@type":"Answer","text":"Move the mouse and your centipede follows the cursor; hold the button to boost. On a phone, choose follow-finger, an on-screen joystick or tilt steering on the start page. On a keyboard use the arrow keys or A/D, with space to boost. Boost costs length, so use it to escape or to cut someone off."}},
   {"@type":"Question","name":"What do the portals at the poles do?","acceptedAnswer":{"@type":"Answer","text":"Enter a portal at one pole while it is green and you come out at the opposite pole. Each pole has its own timer. If a portal closes while your body is still passing through, the part on the far side is cut off and becomes jelly."}},
   {"@type":"Question","name":"Is centi free and does it work on mobile?","acceptedAnswer":{"@type":"Answer","text":"Yes. centi is free, has no download, and runs in any modern browser on phone, tablet or desktop."}},
   {"@type":"Question","name":"Is centi multiplayer?","acceptedAnswer":{"@type":"Answer","text":"Yes. Choose Play online to join a shared globe with up to 40 players; bots fill the empty places so the world is never dead. There is also a solo mode against nine AI centipedes."}}
@@ -97,9 +97,13 @@
   #howto .h { font-weight: 700; margin-bottom: 4px; }
   #howto div + div { margin-top: 5px; }
   #howto b { color: #39ff6a; font-weight: 700; }
-  body.touch #howto-mouse, body:not(.touch) #howto-touch, body:not(.touch) #tiltrow { display: none; }
-  .switch { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; font-size: 13px; opacity: .9; cursor: pointer; }
-  .switch input { accent-color: #39ff6a; width: 18px; height: 18px; }
+  body.touch #howto-mouse, body:not(.touch) #howto-touch, body:not(.touch) #touchrow { display: none; }
+  #touchnote { font-size: 12px; opacity: .7; margin-top: 5px; line-height: 1.4; }
+  #stick { position: fixed; left: 22px; bottom: max(22px, env(safe-area-inset-bottom)); width: 136px; height: 136px; border-radius: 50%; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.28); display: none; touch-action: none; z-index: 4; }
+  #knob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%; background: rgba(57,255,106,.9); box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+  #boostbtn { position: fixed; right: 22px; bottom: max(30px, env(safe-area-inset-bottom)); width: 92px; height: 92px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); color: #fff; font: 800 14px system-ui, sans-serif; letter-spacing: .5px; display: none; touch-action: none; z-index: 4; -webkit-user-select: none; user-select: none; }
+  #boostbtn.on { background: rgba(57,255,106,.55); border-color: #39ff6a; color: #04140a; }
+  body.joy:not(.menu):not(.cine) #stick, body.joy:not(.menu):not(.cine) #boostbtn { display: block; }
   .lookrow { display: grid; grid-template-columns: auto 1fr; gap: 8px; margin-top: 8px; }
   #lookbtn { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: #f2eee4; padding: 6px 12px 6px 8px; font: 13px system-ui, sans-serif; cursor: pointer; }
   #lookbtn i { width: 26px; height: 26px; border-radius: 50%; display: block; }
@@ -146,6 +150,8 @@
 <div id="minilabel">far side</div>
 <div id="board"></div>
 <div id="hint"></div>
+<div id="stick"><div id="knob"></div></div>
+<button id="boostbtn">BOOST</button>
 <div id="flash"></div>
 <div id="netstatus"></div>
 <button id="netcancel">× Back to the menu</button>
@@ -171,11 +177,15 @@
   <p id="best"></p>
   <div id="howto">
     <div class="h">How to play</div>
-    <div id="howto-touch"><b>Steer:</b> touch anywhere and the centipede heads for your finger. <b>Boost:</b> hold a second finger down (costs length). <b>Zoom:</b> pinch.</div>
+    <div id="howto-touch"><b>Steer:</b> follow your finger, an on-screen joystick, or tilt — pick below. <b>Boost</b> costs length. <b>Zoom:</b> pinch.</div>
     <div id="howto-mouse"><b>Steer:</b> move the mouse, the centipede follows it (or ← → / A D). <b>Boost:</b> hold the mouse button or space (costs length). <b>Zoom:</b> scroll or + / −. <b>C</b> camera, <b>V</b> hides the UI.</div>
     <div>Eat pellets to grow. Run into any body and you die; the dead leave jelly. Portals at the poles jump you across the globe while green. Sinkholes and storms pull you in — boost to escape.</div>
   </div>
-  <label class="switch" id="tiltrow"><input type="checkbox" id="tilt"><span>Tilt to steer (uses the phone's gyro; touch to boost)</span></label>
+  <div id="touchrow">
+    <label>Touch controls</label>
+    <div class="seg" id="touchmode"><button data-m="finger">Follow finger</button><button data-m="joy">Joystick</button><button data-m="tilt">Tilt</button></div>
+    <div id="touchnote">Touch anywhere and the centipede heads for your finger; hold a second finger to boost.</div>
+  </div>
   <div class="lookrow">
     <button id="lookbtn" type="button"><i id="lookswatch"></i><span id="lookname">Ember</span><em>Change look</em></button>
     <input id="name" maxlength="14" placeholder="Your centipede's name">
@@ -193,7 +203,7 @@
     <h2>How to play</h2>
     <ul>
       <li><strong>Mouse:</strong> your centipede follows the cursor. Hold the button to boost.</li>
-      <li><strong>Touch:</strong> touch anywhere and the centipede heads for your finger; hold a second finger to boost; pinch to zoom. Or switch on <em>Tilt to steer</em> and lean the phone.</li>
+      <li><strong>Touch:</strong> pick your controls on the start page — follow your finger (hold a second finger to boost), an on-screen joystick with a boost button, or tilt the phone (touch to boost). Pinch to zoom.</li>
       <li><strong>Keyboard:</strong> arrow keys or A/D to steer, space to boost, C to switch camera, V for cinematic mode.</li>
       <li>Boost costs length, so spend it to escape a storm or to cut across another centipede's path.</li>
       <li>Head into any body and you die; the dead leave jelly worth double a pellet.</li>
