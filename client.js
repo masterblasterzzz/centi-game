@@ -663,9 +663,38 @@ addEventListener('keyup', e => { keys[e.code] = false; });
 // tilt (opt-in on the start card): lean the phone to steer, touch anywhere to boost.
 const mouse = { x: 0, y: 0, active: false, down: false, moved: false };
 const scrHead = new THREE.Vector3(), scrAhead = new THREE.Vector3();
-const tilt = { on: !!store.get('tilt'), ok: false, steer: 0 };
-const tiltBox = document.getElementById('tilt'); tiltBox.checked = tilt.on;
-tiltBox.addEventListener('change', () => { tilt.on = tiltBox.checked; store.set('tilt', tilt.on); if (tilt.on) askTilt(); });
+// touch control scheme (start card, touch devices only): 'finger' | 'joy' | 'tilt'
+const TOUCH_NOTES = { finger: 'Touch anywhere and the centipede heads for your finger; hold a second finger to boost.', joy: 'An on-screen stick appears bottom-left and a boost button bottom-right.', tilt: "Lean the phone to steer (it will ask for motion access); touch anywhere to boost." };
+const tilt = { on: false, ok: false, steer: 0 };
+const touchModeEl = document.getElementById('touchmode');
+let touchMode = 'finger';
+function setTouchMode(m, save) {
+  touchMode = m; tilt.on = m === 'tilt';
+  [...touchModeEl.children].forEach(b => b.classList.toggle('sel', b.dataset.m === m));
+  document.getElementById('touchnote').textContent = TOUCH_NOTES[m];
+  document.body.classList.toggle('joy', m === 'joy');
+  if (save) store.set('touch', m);
+  if (tilt.on) askTilt();
+}
+[...touchModeEl.children].forEach(b => b.addEventListener('click', () => setTouchMode(b.dataset.m, true)));
+setTouchMode(['finger', 'joy', 'tilt'].includes(store.get('touch')) ? store.get('touch') : 'finger', false);
+// on-screen joystick + boost button
+const joy = { active: false, id: -1, x: 0, y: 0, boost: false };
+const stickEl = document.getElementById('stick'), knobEl = document.getElementById('knob'), boostBtn = document.getElementById('boostbtn');
+function joyMove(e) {
+  const r = stickEl.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, rad = r.width / 2 - 10;
+  let dx = e.clientX - cx, dy = e.clientY - cy; const d = Math.hypot(dx, dy);
+  if (d > rad) { dx *= rad / d; dy *= rad / d; }
+  joy.x = dx / rad; joy.y = dy / rad;
+  knobEl.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+}
+stickEl.addEventListener('pointerdown', e => { e.stopPropagation(); joy.active = true; joy.id = e.pointerId; stickEl.setPointerCapture(e.pointerId); joyMove(e); });
+stickEl.addEventListener('pointermove', e => { if (joy.active && e.pointerId === joy.id) joyMove(e); });
+const joyEnd = e => { if (e.pointerId !== joy.id) return; joy.active = false; joy.id = -1; joy.x = joy.y = 0; knobEl.style.transform = ''; };
+stickEl.addEventListener('pointerup', joyEnd); stickEl.addEventListener('pointercancel', joyEnd);
+boostBtn.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); joy.boost = true; boostBtn.classList.add('on'); boostBtn.setPointerCapture(e.pointerId); });
+const boostEnd = () => { joy.boost = false; boostBtn.classList.remove('on'); };
+boostBtn.addEventListener('pointerup', boostEnd); boostBtn.addEventListener('pointercancel', boostEnd);
 function askTilt() {                                     // iOS needs this from a tap; other browsers just deliver events
   const D = window.DeviceOrientationEvent;
   if (!D) { tilt.ok = false; return; }
@@ -679,20 +708,26 @@ addEventListener('deviceorientation', e => {
   const dead = 3, span = 22;
   tilt.steer = Math.abs(g) < dead ? 0 : Math.max(-1, Math.min(1, (g - Math.sign(g) * dead) / span));
 });
-function pointSteer(px, py) {
+// steer toward a screen-space direction (scx, scy) measured from the head; dead zone in pixels
+function steerToward(scx, scy, dead) {
   const self = me();
   scrHead.copy(self.p).multiplyScalar(R + 2).project(camera);
   scrAhead.copy(self.p).addScaledVector(self.h, 6 / R).normalize().multiplyScalar(R + 2).project(camera);
-  const hx = (scrHead.x + 1) / 2 * innerWidth, hy = (1 - scrHead.y) / 2 * innerHeight;
-  const ax = (scrAhead.x + 1) / 2 * innerWidth, ay = (1 - scrAhead.y) / 2 * innerHeight;
-  const shx = ax - hx, shy = ay - hy, scx = px - hx, scy = py - hy;
+  const shx = (scrAhead.x - scrHead.x) / 2 * innerWidth, shy = -(scrAhead.y - scrHead.y) / 2 * innerHeight;
   const dc = Math.hypot(scx, scy), dh = Math.hypot(shx, shy);
-  if (dc < 22 || dh < 1e-3) return 0;
+  if (dc < dead || dh < 1e-3) return 0;
   const cross = (shx * scy - shy * scx) / (dh * dc);
   const dot = (shx * scx + shy * scy) / (dh * dc);
   return Math.max(-1, Math.min(1, Math.atan2(cross, dot) / .35));
 }
+function pointSteer(px, py) {
+  const self = me();
+  scrHead.copy(self.p).multiplyScalar(R + 2).project(camera);
+  const hx = (scrHead.x + 1) / 2 * innerWidth, hy = (1 - scrHead.y) / 2 * innerHeight;
+  return steerToward(px - hx, py - hy, 22);
+}
 const mouseSteer = () => pointSteer(mouse.x, mouse.y);
+const joySteer = () => steerToward(joy.x * 100, joy.y * 100, 15);      // the stick is a direction on screen, like the finger
 renderer.domElement.addEventListener('pointerdown', e => {
   if (spectating) drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
   if (e.pointerType === 'mouse') { mouse.down = true; mouse.active = true; return; }
@@ -739,11 +774,13 @@ function drawMini(p) {
   for (const sn of world.snakes) if (sn.alive) put(sn.p, 6 + Math.min(10, sn.curLen / 40), sn === self ? 0x39ff6a : !sn.isBot ? 0x9ff3ff : sn.ai === 'hard' ? 0xff3b3b : sn.ai === 'medium' ? 0xff9f1c : 0xffe066);
   miniDots.count = k; miniDots.instanceMatrix.needsUpdate = true; miniDots.instanceColor.needsUpdate = true;
   miniCam.position.copy(p).multiplyScalar(-R * 3.2); miniCam.up.copy(camUpRef); miniCam.lookAt(0, 0, 0);
-  const size = Math.min(150, Math.floor(innerWidth * .3)), y = 48;
-  renderer.setScissorTest(true); renderer.setViewport(12, y, size, size); renderer.setScissor(12, y, size, size);
+  const joyOn = document.body.classList.contains('joy');                  // stick bottom-left, boost bottom-right: park the map above the boost button
+  const size = Math.min(joyOn ? 110 : 150, Math.floor(innerWidth * .3)), y = joyOn ? 150 : 48;
+  const x = joyOn ? innerWidth - size - 12 : 12;
+  renderer.setScissorTest(true); renderer.setViewport(x, y, size, size); renderer.setScissor(x, y, size, size);
   renderer.render(miniScene, miniCam);
   renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
-  miniLabel.style.bottom = (y + size + 2) + 'px';
+  miniLabel.style.bottom = (y + size + 2) + 'px'; miniLabel.style.left = (x + 4) + 'px';
 }
 
 // ---------- events from the simulation → sounds, feed, killcam, analytics ----------
@@ -780,9 +817,10 @@ function frame(nowMs) {
       if (keys.ArrowLeft || keys.KeyA) steer -= 1;
       if (keys.ArrowRight || keys.KeyD) steer += 1;
       if (steer === 0 && touches.size === 0 && mouse.active && mouse.moved) steer = mouseSteer();
-      if (tilt.on && tilt.ok) steer = tilt.steer;
+      if (touchMode === 'tilt' && tilt.ok) steer = tilt.steer;
+      else if (touchMode === 'joy') { if (joy.active) steer = joySteer(); }
       else if (touches.size === 1) { const f = [...touches.values()][0]; steer = pointSteer(f.x, f.y); }
-      boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || (touches.size >= 2 && !pinching) || (tilt.on && tilt.ok && touches.size === 1);
+      boost = !!keys.Space || !!keys.ShiftLeft || mouse.down || joy.boost || (touchMode !== 'joy' && touches.size >= 2 && !pinching) || (touchMode === 'tilt' && tilt.ok && touches.size === 1);
     }
     if (online) {
       if (net) { net.input(steer, boost); net.interpolate(dtReal); }
