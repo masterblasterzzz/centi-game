@@ -93,7 +93,7 @@
       this.p.copy(pos); this.h.copy(tangentAt(this.p));
       this.trail.length = 0; this.trail.push(this.p.clone());
       this.targetLen = this.curLen = 10; this.steer = 0; this.boost = false; this.boostDebt = 0;
-      this.alive = true; this.portalCooldown = 0; this.spawnedAt = t;
+      this.alive = true; this.portalCooldown = 0; this.spawnedAt = t; this.inPull = false; this.pullK = 0;   // a storm death left pullK high, so the menu centipede kept the rumble going
       this.cutPoint = null; this.pendingCut = false; this.cutPortal = -1; this.aiState = null;
     }
     // the portal closed while the tail was still on the far side: everything behind the cut is lost as jelly
